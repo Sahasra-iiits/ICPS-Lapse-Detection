@@ -10,8 +10,8 @@ and, if you ran extract_video_features.py:
     <session>_video.csv   per-frame blendshapes, facial motion, skin colour
     <session>_rppg.csv    webcam heart rate
 
-Each labelled example = the WINDOW_S seconds just before a probe beep
-(or just before a self-report). Label 1 = lapse.
+Each labelled example = the WINDOW_S seconds just before a probe beep,
+a PVT-B stimulus (pvt_b.py), or a self-report. Label 1 = lapse.
 
 Every feature belongs to a group (see FEATURE_GROUP) so the trainer can run
 an ablation: which groups actually help?
@@ -57,6 +57,7 @@ BASELINE_STEP_S = 2.0    # stride for the per-session baseline windows
 LAPSE_RT_FACTOR = 1.5
 LAPSE_RT_MIN_MS = 1000
 REPORT_GAP_MS = 1000     # self-report window ends this long before the keypress
+PVT_LAPSE_MS = 355       # PVT-B sessions (pvt_b.py): standard brief-PVT lapse threshold
 
 # Remove frames from [probe onset, response + this] of earlier probes/reports
 CLEAN_RESPONSES = True
@@ -480,6 +481,10 @@ def label_points(events):
             miss = pd.isna(rt)
             lapse = int(miss or rt > thr)
             pts.append((int(e.timestamp_ms), lapse, "probe", rt))
+        elif e.event_type == "pvt":
+            rt = e.rt_ms
+            lapse = int(pd.isna(rt) or rt >= PVT_LAPSE_MS)
+            pts.append((int(e.timestamp_ms), lapse, "pvt", rt))
         elif e.event_type == "self_report":
             pts.append((int(e.timestamp_ms) - REPORT_GAP_MS, 1, "self_report", np.nan))
     return pts

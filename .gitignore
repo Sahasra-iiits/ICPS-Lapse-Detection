@@ -17,6 +17,10 @@ experiment_events/
 *.joblib
 lapse_dataset.csv
 lapse_results.csv
+ablation_results.csv
+alerts_*.csv
+scores_*.csv
+rppg_validation*
 
 # Secrets / local config
 .env

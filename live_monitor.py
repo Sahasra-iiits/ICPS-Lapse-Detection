@@ -16,7 +16,10 @@ Alerts (beep + on-screen banner + desktop notification; Windows/Linux need `plye
 
 The first 60 s are calibration: look at the screen and blink normally.
 Keys (in the camera window): q = quit, h = demo: fake +35 bpm (shown as SIM).
-Alerts are logged to alerts_<time>.csv.
+Alerts are logged to alerts_<time>.csv, and the scores every 2 s to scores_<time>.csv
+(compare them with a PVT-B session using compare_alerts.py).
+When replaying a recording, its _data.csv timestamps are used, so alert times
+line up exactly with the recording's events.
 """
 
 import argparse
@@ -261,6 +264,12 @@ def main():
         vid.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         vid.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     file_fps = vid.get(cv2.CAP_PROP_FPS) or 30.0
+    file_ts = None
+    if is_file:
+        data_csv = os.path.splitext(args.source)[0] + "_data.csv"
+        if os.path.exists(data_csv):
+            file_ts = pd.read_csv(data_csv, usecols=["timestamp_ms"]).timestamp_ms.to_numpy()
+            print("Using recording timestamps from", os.path.basename(data_csv))
 
     landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(
         mp.tasks.vision.FaceLandmarkerOptions(
@@ -280,6 +289,9 @@ def main():
     log = open(log_path, "w", newline="")
     logw = csv.writer(log)
     logw.writerow(["t_s", "alert", "message", "hr", "perclos", "zoning_score"])
+    score_log = open(log_path.replace("alerts_", "scores_"), "w", newline="")
+    scorew = csv.writer(score_log)
+    scorew.writerow(["t_s", "zoning_score", "perclos", "hr", "hr_source", "calibrated"])
 
     base = None                 # calibration results
     hr_calib = []
@@ -295,7 +307,12 @@ def main():
         ok, frame = vid.read()
         if not ok:
             break
-        t_ms = int(i * 1000 / file_fps) if is_file else int((time.monotonic() - t0) * 1000)
+        if file_ts is not None and i < len(file_ts):
+            t_ms = int(file_ts[i])
+        elif is_file:
+            t_ms = int(i * 1000 / file_fps)
+        else:
+            t_ms = int((time.monotonic() - t0) * 1000)
         if is_file and not args.fast:
             time.sleep(max(0.0, t_ms / 1000 - (time.monotonic() - t0)))
         i += 1
@@ -369,6 +386,9 @@ def main():
                 else:
                     zoning = False
                 alerts += rules.on_tick(t, zoning, hr_used, base["hr_base"])
+            scorew.writerow([round(t, 2), round(zone_score, 4) if np.isfinite(zone_score) else "",
+                             round(rules.perclos(), 4) if np.isfinite(rules.perclos()) else "",
+                             round(hr_used, 1) if np.isfinite(hr_used) else "", hr_src, int(base is not None)])
 
         # ---------- every frame: dozing off ----------
         if base is not None:
@@ -414,6 +434,7 @@ def main():
     landmarker.close()
     cv2.destroyAllWindows()
     log.close()
+    score_log.close()
     cap.stop_threads.set()
     print("Alerts saved to", log_path)
 
