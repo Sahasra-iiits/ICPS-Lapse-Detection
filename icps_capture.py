@@ -128,8 +128,6 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
 
 # ============================================================
 # DATABASE
@@ -452,6 +450,8 @@ def main():
     print("\n" + "=" * 60)
     print(" ICPS ONLINE COMMUNICATION DATA COLLECTION")
     print("=" * 60 + "\n")
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     participant = input("Participant ID (e.g. P01): ").strip() or "unknown"
 
