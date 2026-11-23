@@ -70,6 +70,31 @@ Outputs:
 - `lapse_model.joblib`: the best model.
 - `rppg_validation.png`: the heart-rate comparison plot.
 
+### Final model (recommended): `train_final.py`
+This is the setup that worked best on DROZY:
+- 10/30/60 s eye-closure features, each compared against the person's alert baseline (the 60 s rest of the PVT-B);
+- tuned extra trees;
+- detects **drowsy minutes** (a minute with at least 25% lapses).
+```bash
+python train_final.py --data recordings --behaviour                         # our data
+python train_final.py --data drozy_converted recordings --behaviour         # DROZY + ours
+python train_final.py --data drozy_converted --test-data recordings --behaviour   # train DROZY, test ours
+```
+- `--behaviour` adds recent reaction times (in a call, that's how slowly someone has been responding).
+- `--target trial` predicts single trials instead of drowsy minutes.
+
+It prints F1, precision, recall, balanced accuracy, ROC-AUC, PR-AUC and MCC. **Judge F1 against `chance_f1`, and accuracy against `majority_class_accuracy`.**
+
+DROZY results (leave-people-out):
+
+| Setup | F1 (chance) | Balanced acc | ROC-AUC |
+|---|---|---|---|
+| Single trial | 0.43 (0.27) | 0.68 | 0.72 |
+| Drowsy minute | 0.55 (0.37) | 0.72 | 0.80 |
+| Drowsy minute + response times | **0.65** (0.37) | **0.78** | **0.85** |
+
+SMOTE/ADASYN made F1 slightly worse on DROZY; class weights are better.
+
 ### More training data: augmentation + SMOTE
 ```bash
 python augment_videos.py --data recordings --copies 3     # before train_lapse_model.py

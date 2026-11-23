@@ -20,6 +20,9 @@ lapse_results.csv
 ablation_results.csv
 model_comparison.csv
 cross_dataset_results.csv
+_features_*.csv
+final_results.csv
+final_per_person.csv
 drozy_converted/
 DROZY/
 alerts_*.csv
