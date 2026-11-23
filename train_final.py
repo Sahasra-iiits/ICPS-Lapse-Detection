@@ -48,6 +48,8 @@ BEHAVIOUR = ["prev_rt", "recent_rt_mean5", "recent_lapses5"]
 SMOOTH_HALF_LIFE = 15          # trials
 DROWSY_MINUTE_RATE = 0.25
 CALIB_S = 120
+FS_RUN = 3                  # >= this many false starts right before a trial ...
+FS_WEIGHT = 0.25           # ... -> that trial gets this weight in TRAINING
 
 
 # ============================================================
@@ -110,6 +112,12 @@ def load_folder(folder):
             d = d.merge(p.drop(columns=["label", "source", "rt_ms"]), on="t_end_ms")
         ev = sess["events"].event_type
         has_rest = (ev == "rest_start").any() and (ev == "test_start").any()
+        # false starts since the previous trial (runs of them = likely mis-presses)
+        fs_t = sess["events"][ev == "false_start"].timestamp_ms.to_numpy(float)
+        trial_t = np.sort(d.t_end_ms.unique())
+        prev_t = np.concatenate([[-np.inf], trial_t[:-1]])
+        n_fs = {t: int(((fs_t > pt) & (fs_t <= t)).sum()) for t, pt in zip(trial_t, prev_t)}
+        d["false_starts_before"] = d.t_end_ms.map(n_fs)
         base = baseline_vector(sess, "rest" if has_rest else "start")
         d = d.assign(session_id=sid, participant=sess["participant"], augmented=int(sess["augmented"]),
                      dataset=sess["dataset"], has_rest=int(has_rest),
@@ -160,21 +168,32 @@ def model():
                                 class_weight="balanced_subsample", n_jobs=-1, random_state=0)
 
 
+def train_weights(d):
+    """Trials right after a run of false starts are probably mis-presses: down-weight them."""
+    fs = d["false_starts_before"].fillna(0).to_numpy() if "false_starts_before" in d else np.zeros(len(d))
+    return np.where(fs >= FS_RUN, FS_WEIGHT, 1.0)
+
+
 def smooth(d, p, half_life=SMOOTH_HALF_LIFE):
     a = 1 - 0.5 ** (1 / half_life)
     s = pd.Series(p, index=d.index)
     return s.groupby(d.session_id.values).transform(lambda x: x.ewm(alpha=a, adjust=True).mean()).to_numpy()
 
 
-def fit_predict(tr, te, cols, target):
+def fit(tr, cols):
     med = tr[cols].median()
-    m = model().fit(tr[cols].fillna(med).fillna(0), tr[target])
-    return m.predict_proba(te[cols].fillna(med).fillna(0))[:, 1], m
+    m = model().fit(tr[cols].fillna(med).fillna(0), tr.label, sample_weight=train_weights(tr))
+    return m, med
 
 
-def to_units(d, score, target_kind, min_trials):
+def predict(m, med, te, cols, smooth_on):
+    s = m.predict_proba(te[cols].fillna(med).fillna(0))[:, 1]
+    return smooth(te, s) if smooth_on else s
+
+
+def to_units(d, score, unit, min_trials):
     """Per-trial rows, or per-minute rows (mean score, drowsy label)."""
-    if target_kind == "trial":
+    if unit == "trial":
         return d.label.to_numpy(), score, d.participant.to_numpy()
     m = d.assign(s=score, minute=d.t_end_ms // 60000).groupby(
         ["participant", "session_id", "minute"]).agg(s=("s", "mean"), rate=("label", "mean"),
@@ -191,121 +210,160 @@ def best_threshold(y, s):
 
 
 def scores_of(y, s, pred):
-    return dict(n=len(y), positives=float(y.mean()), roc_auc=roc_auc_score(y, s),
-                pr_auc=average_precision_score(y, s), f1=f1_score(y, pred),
-                precision=precision_score(y, pred, zero_division=0), recall=recall_score(y, pred),
-                balanced_accuracy=balanced_accuracy_score(y, pred), accuracy=accuracy_score(y, pred),
-                mcc=matthews_corrcoef(y, pred), chance_f1=2 * y.mean() / (1 + y.mean()),
-                majority_class_accuracy=max(y.mean(), 1 - y.mean()))
+    out = dict(n=len(y), positives=float(y.mean()))
+    if len(np.unique(y)) == 2:
+        out.update(roc_auc=roc_auc_score(y, s), pr_auc=average_precision_score(y, s))
+    out.update(f1=f1_score(y, pred, zero_division=0), precision=precision_score(y, pred, zero_division=0),
+               recall=recall_score(y, pred, zero_division=0),
+               balanced_accuracy=balanced_accuracy_score(y, pred) if len(np.unique(y)) == 2 else np.nan,
+               accuracy=accuracy_score(y, pred), mcc=matthews_corrcoef(y, pred),
+               chance_f1=2 * y.mean() / (1 + y.mean()), majority_class_accuracy=max(y.mean(), 1 - y.mean()))
+    return out
 
 
-def threshold_from_training(tr, cols, target_kind, min_trials, smooth_on):
-    inner = np.full(len(tr), np.nan)
-    k = min(3, tr.participant.nunique())
+def thresholds_from_training(tr, cols, min_trials, smooth_on):
+    """Decision thresholds (trial + minute) from inner leave-people-out on TRAINING people."""
+    real = tr[tr.augmented == 0]
+    inner = np.full(len(real), np.nan)
+    people = real.participant.unique()
+    k = min(3, len(people))
     if k < 2:
-        return 0.5
-    for a, b in GroupKFold(k).split(tr, tr.label, tr.participant):
-        trn = tr.iloc[a]
-        trn = trn if trn.label.nunique() == 2 else tr
-        inner[b] = fit_predict(trn, tr.iloc[b], cols, "label")[0]
-    if smooth_on:
-        inner = smooth(tr, inner)
-    y, s, _ = to_units(tr, inner, target_kind, min_trials)
-    return best_threshold(y, s)
+        return {"trial": 0.5, "minute": 0.5}
+    for i, test_p in enumerate(np.array_split(np.random.default_rng(1).permutation(people), k)):
+        trn = tr[~tr.participant.isin(test_p)]
+        if trn.label.nunique() < 2:
+            continue
+        m, med = fit(trn, cols)
+        idx = real.participant.isin(test_p).to_numpy()
+        inner[idx] = predict(m, med, real[idx], cols, smooth_on)
+    ok = ~np.isnan(inner)
+    r = real[ok]
+    return {u: best_threshold(*to_units(r, inner[ok], u, min_trials)[:2]) for u in ("trial", "minute")}
+
+
+def evaluate_split(tr, te, cols, min_trials, smooth_on):
+    thr = thresholds_from_training(tr, cols, min_trials, smooth_on)
+    m, med = fit(tr, cols)
+    s = predict(m, med, te, cols, smooth_on)
+    return s, thr
+
+
+def report(te, s, thr, min_trials, title):
+    rows = []
+    print(f"\n=== {title} ===")
+    for unit in ("minute", "trial"):
+        for name, mask in [("ALL test people", np.ones(len(te), bool))] + [
+                (f"{ds} only", (te.dataset == ds).to_numpy()) for ds in sorted(te.dataset.unique())]:
+            if mask.sum() == 0:
+                continue
+            y, su, _ = to_units(te[mask], s[mask], unit, min_trials)
+            if len(y) == 0:
+                continue
+            r = scores_of(y, su, su >= thr[unit])
+            rows.append(dict(evaluation=title, unit=unit, subset=name, **r))
+            auc = f"ROC-AUC {r['roc_auc']:.3f}  PR-AUC {r['pr_auc']:.3f}  " if "roc_auc" in r else ""
+            print(f"  {unit:6s} {name:18s} n={r['n']:4d} pos={r['positives']:.0%}  {auc}"
+                  f"F1 {r['f1']:.3f} (chance {r['chance_f1']:.3f})  prec {r['precision']:.3f}  "
+                  f"recall {r['recall']:.3f}  bal.acc {r['balanced_accuracy']:.3f}  "
+                  f"acc {r['accuracy']:.3f} (majority {r['majority_class_accuracy']:.3f})")
+    return rows
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", nargs="+", required=True, help="one or more recording folders")
-    ap.add_argument("--test-data", nargs="*", help="evaluate on these folders instead of CV")
-    ap.add_argument("--target", choices=["minute", "trial"], default="minute")
+    ap.add_argument("--test-people", nargs="*", help="fixed split: these participants are the TEST set")
+    ap.add_argument("--rotate-dataset", help="also rotate which people of this dataset are tested "
+                                             "(e.g. 'own'); everyone else always trains")
     ap.add_argument("--behaviour", action="store_true", help="add recent reaction-time features")
     ap.add_argument("--min-trials", type=int, default=5, help="trials needed for a minute to count")
+    ap.add_argument("--own-lapse-ms", type=float, help="override the PVT lapse threshold for non-DROZY data")
     ap.add_argument("--no-smoothing", action="store_true")
-    ap.add_argument("--use-augmented", action="store_true", help="train on augmented sessions too")
+    ap.add_argument("--no-augmented", action="store_true", help="ignore augmented sessions")
     ap.add_argument("--out", default="final_model.joblib")
     args = ap.parse_args()
-
-    load = lambda folders: pd.concat([load_folder(f) for f in folders], ignore_index=True)
-    df = load(args.data)
-    test = load(args.test_data) if args.test_data else None
-    allp = pd.concat([df, test], ignore_index=True) if test is not None else df
-    allp, cols = add_person_baseline(allp)
-    if args.behaviour:
-        allp = add_behaviour(allp)
-        cols += BEHAVIOUR
-    allp = allp.sort_values(["session_id", "t_end_ms"]).reset_index(drop=True)
-    tr_mask = allp.session_id.isin(df.session_id)
-    if not args.use_augmented:
-        allp = allp[(allp.augmented == 0) | ~tr_mask].reset_index(drop=True)
-        tr_mask = allp.session_id.isin(df.session_id)
     smooth_on = not args.no_smoothing
 
-    real = allp[tr_mask & (allp.augmented == 0)]
-    print(f"\nTarget: {args.target}{' + behaviour' if args.behaviour else ''} | "
-          f"{real.participant.nunique()} people, {real.session_id.nunique()} sessions, "
-          f"{len(real)} trials, {real.label.mean():.1%} lapses")
+    df = pd.concat([load_folder(f) for f in args.data], ignore_index=True)
+    if "false_starts_before" not in df:
+        df["false_starts_before"] = 0
+    df["false_starts_before"] = df.false_starts_before.fillna(0)
+    if args.own_lapse_ms:
+        own = (df.dataset != "drozy") & (df.source == "pvt")
+        df.loc[own, "label"] = (df.loc[own, "rt_ms"].isna() | (df.loc[own, "rt_ms"] >= args.own_lapse_ms)).astype(int)
+    if args.no_augmented:
+        df = df[df.augmented == 0]
+    df, cols = add_person_baseline(df)
+    if args.behaviour:
+        df = add_behaviour(df)
+        cols += BEHAVIOUR
+    df = df.sort_values(["session_id", "t_end_ms"]).reset_index(drop=True)
 
-    per_person, ys, ss, ps = [], [], [], []
-    if test is None:
-        people = real.participant.unique()
-        if len(people) < 2:
-            raise SystemExit("Need at least 2 people for leave-people-out CV.")
-        k = min(7, len(people))
-        for fold, test_people in enumerate(np.array_split(np.random.default_rng(0).permutation(people), k)):
-            tr = allp[tr_mask & ~allp.participant.isin(test_people)]
-            te = allp[allp.participant.isin(test_people) & (allp.augmented == 0)]
-            if tr.label.nunique() < 2 or te.empty:
-                continue
-            thr = threshold_from_training(tr, cols, args.target, args.min_trials, smooth_on)
-            s = fit_predict(tr, te, cols, "label")[0]
-            if smooth_on:
-                s = smooth(te, s)
-            y, s_u, who = to_units(te, s, args.target, args.min_trials)
-            ys.append(y); ss.append(s_u); ps.append(s_u >= thr)
-            for p in np.unique(who):
-                m = who == p
-                if len(np.unique(y[m])) == 2:
-                    per_person.append(dict(person=p, n=int(m.sum()), positives=int(y[m].sum()),
-                                           roc_auc=roc_auc_score(y[m], s_u[m]),
-                                           f1=f1_score(y[m], s_u[m] >= thr)))
-        label = f"leave-people-out CV ({k} folds)"
-    else:
-        tr = allp[tr_mask]
-        te = allp[~tr_mask & (allp.augmented == 0)]
-        thr = threshold_from_training(tr, cols, args.target, args.min_trials, smooth_on)
-        s = fit_predict(tr, te, cols, "label")[0]
-        if smooth_on:
-            s = smooth(te, s)
-        y, s_u, _ = to_units(te, s, args.target, args.min_trials)
-        ys, ss, ps = [y], [s_u], [s_u >= thr]
-        label = f"trained on {args.data}, tested on {args.test_data}"
+    # only keep features that every dataset actually has (e.g. blendshapes need the video)
+    real = df[df.augmented == 0]
+    miss = real.groupby("dataset")[cols].apply(lambda g: g.isna().mean()).max()
+    dropped = [c for c in cols if miss[c] > 0.5]
+    cols = [c for c in cols if c not in dropped]
+    if dropped:
+        bases = sorted({c.split("@")[0] for c in dropped})
+        print(f"Dropped {len(dropped)} features missing in some dataset: {', '.join(bases)}")
 
-    y, s, p = np.concatenate(ys), np.concatenate(ss), np.concatenate(ps)
-    if len(np.unique(y)) < 2:
-        raise SystemExit("Test units contain only one class - not enough data yet.")
-    res = scores_of(y, s, p)
-    print(f"\n=== {label}, unit = {'drowsy minute' if args.target == 'minute' else 'trial'} ===")
-    for k_, v in res.items():
-        print(f"  {k_:24s} {v:.3f}" if isinstance(v, float) else f"  {k_:24s} {v}")
-    print("  (judge F1 against chance_f1, accuracy against majority_class_accuracy)")
-    pd.DataFrame([dict(setup=label, target=args.target, behaviour=args.behaviour, **res)]).to_csv(
-        "final_results.csv", index=False)
-    if per_person:
-        pp = pd.DataFrame(per_person)
-        pp.to_csv("final_per_person.csv", index=False)
-        print(f"\n  per person: ROC-AUC {pp.roc_auc.mean():.3f} ± {pp.roc_auc.std():.3f}, "
-              f"above chance for {(pp.roc_auc > .5).sum()}/{len(pp)} people")
+    print(f"\n{real.participant.nunique()} people ({', '.join(f'{k}: {v}' for k, v in real.groupby('dataset').participant.nunique().items())}), "
+          f"{len(real)} real trials, {real.label.mean():.1%} lapses; "
+          f"{int((train_weights(real) < 1).sum())} trials down-weighted after >= {FS_RUN} false starts; "
+          f"{df.augmented.sum()} augmented windows")
 
-    # final model on all training data
-    tr = allp[tr_mask]
-    thr = threshold_from_training(tr, cols, args.target, args.min_trials, smooth_on)
-    m = fit_predict(tr, tr.head(1), cols, "label")[1]
-    joblib.dump({"model": m, "features": cols, "threshold": thr, "target": args.target,
+    all_rows = []
+    if args.test_people:
+        test_mask = df.participant.isin(args.test_people)
+        tr, te = df[~test_mask], df[test_mask & (df.augmented == 0)]
+        print(f"TRAIN: {', '.join(sorted(tr.participant.unique()))}\nTEST:  {', '.join(sorted(te.participant.unique()))}")
+        s, thr = evaluate_split(tr, te, cols, args.min_trials, smooth_on)
+        all_rows += report(te, s, thr, args.min_trials, "Fixed test set")
+        pp = []
+        for p, g in te.assign(s=s).groupby("participant"):
+            if g.label.nunique() == 2:
+                pp.append(dict(person=p, dataset=g.dataset.iloc[0], trials=len(g), lapses=int(g.label.sum()),
+                               roc_auc=roc_auc_score(g.label, g.s), f1=f1_score(g.label, g.s >= thr["trial"])))
+        if pp:
+            pp = pd.DataFrame(pp)
+            print("\n  per test person (trial level):")
+            print(pp.round(3).to_string(index=False))
+            pp.to_csv("final_per_person.csv", index=False)
+
+    if args.rotate_dataset:
+        rp = real[real.dataset == args.rotate_dataset].participant.unique()
+        k = min(4, len(rp))
+        units = {"minute": [], "trial": []}
+        for test_p in np.array_split(np.random.default_rng(0).permutation(rp), k):
+            tr = df[~df.participant.isin(test_p)]
+            te = df[df.participant.isin(test_p) & (df.augmented == 0)]
+            s, thr = evaluate_split(tr, te, cols, args.min_trials, smooth_on)
+            for u in units:                                   # each fold uses ITS OWN threshold
+                y, su, _ = to_units(te, s, u, args.min_trials)
+                units[u].append((y, su, su >= thr[u]))
+        title = f"Rotation: every '{args.rotate_dataset}' person tested once ({k} folds; everyone else trains)"
+        print(f"\n=== {title} ===")
+        for u, parts in units.items():
+            y, su, pr = (np.concatenate(x) for x in zip(*parts))
+            r = scores_of(y, su, pr)
+            all_rows.append(dict(evaluation=title, unit=u, subset=args.rotate_dataset, **r))
+            auc = f"ROC-AUC {r['roc_auc']:.3f}  PR-AUC {r['pr_auc']:.3f}  " if "roc_auc" in r else ""
+            print(f"  {u:6s} n={r['n']:4d} pos={r['positives']:.0%}  {auc}F1 {r['f1']:.3f} "
+                  f"(chance {r['chance_f1']:.3f})  prec {r['precision']:.3f}  recall {r['recall']:.3f}  "
+                  f"bal.acc {r['balanced_accuracy']:.3f}  acc {r['accuracy']:.3f} "
+                  f"(majority {r['majority_class_accuracy']:.3f})")
+
+    pd.DataFrame(all_rows).to_csv("final_results.csv", index=False)
+
+    # final model on everything
+    m, med = fit(df, cols)
+    thr = thresholds_from_training(df, cols, args.min_trials, smooth_on)
+    joblib.dump({"model": m, "features": cols, "medians": med.to_dict(), "thresholds": thr,
                  "windows_s": WINDOWS, "behaviour": args.behaviour,
                  "smoothing_half_life": SMOOTH_HALF_LIFE if smooth_on else 0,
-                 "medians": tr[cols].median().to_dict(), "cv": res}, args.out)
-    print(f"\nSaved {args.out}")
+                 "false_start_rule": {"run": FS_RUN, "weight": FS_WEIGHT}}, args.out)
+    print(f"\nSaved {args.out} (trained on all people) and final_results.csv")
 
 
 if __name__ == "__main__":
