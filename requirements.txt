@@ -8,3 +8,5 @@ sounddevice
 pynput
 scikit-learn
 joblib
+scipy
+matplotlib

@@ -77,6 +77,11 @@ PROBE_TIMEOUT_S = 3.0     # no tap within this = "miss"
 PROBE_FREQ_HZ = 1000
 PROBE_DUR_MS = 250
 PROBE_VOLUME = 0.6        # 0..1
+# Delay between "beep requested" and sound actually reaching the ear.
+# Bluetooth headphones: ~150-300 ms, wired: ~10-40 ms. Measure once (record the
+# beep with the laptop mic, or film a key tap + beep with a phone at 240 fps)
+# and put it here; lapse_features.py subtracts it from every RT.
+PROBE_OUTPUT_LATENCY_MS = 0
 
 # Right Ctrl / Right Shift: no Fn-key weirdness on laptops, harmless in calls.
 # Run `python icps_recorder.py --keytest` to see what your keys register as.
@@ -684,6 +689,7 @@ def main():
                 "audio_sample_rate": AUDIO_SAMPLE_RATE,
                 "ear_threshold": EAR_THRESHOLD,
                 "probe_timeout_s": PROBE_TIMEOUT_S,
+                "probe_output_latency_ms": PROBE_OUTPUT_LATENCY_MS,
                 "frame_size": [FRAME_W, FRAME_H],
                 "video_fps_header": VIDEO_FPS,
                 "video_fps_actual": round(n_frames / max(last_ts / 1000.0, 1e-6), 2),
