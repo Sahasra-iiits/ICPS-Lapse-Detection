@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "ICPS Focus Alerts",
-  "version": "1.1",
-  "description": "Alerts you inside Google Meet when you doze off, get drowsy, zone out, or your heart rate is high. All processing stays on your computer.",
+  "version": "2.0",
+  "description": "Gentle alerts in Google Meet when you doze off, get drowsy, lose focus, or your heart rate rises. Runs entirely on your computer.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjAMZmqlbzpHuP2D5d21c0FgdMftO/WB9Vj1bVFo2byoLEyhLuLIBkR6iQTT72tDieAiDB9sRUdK7+gCSuWLfrBBs1ImDze6nQCI0lTYAQ7G4GAoeS3QFeMVhBHVwhMQ1kzb1odWFGreBD0x4L5qltrhYkbBHdWdVsUeOurVnjH36XT8NcLYGv+6cFwXYLM1Cj6LTGCTDOaJyC1412ZndAcWrfDVAir6l/nJIR+qLCnbRZoQ8WA9BmuUz84WW7fMWxRNMZNuV4wYOSvLdR0qEfPE2ALDjli0Fgns6u+J6SNmAUNJmSNtVQ+C+VlXTjKsar/9mFJn2sNIpA2DCw8w1DwIDAQAB",
   "permissions": [
-    "storage"
+    "storage",
+    "nativeMessaging"
   ],
   "host_permissions": [
-    "http://127.0.0.1:47813/*",
-    "https://meet.google.com/*"
+    "http://127.0.0.1:47813/*"
   ],
   "background": {
     "service_worker": "background.js"

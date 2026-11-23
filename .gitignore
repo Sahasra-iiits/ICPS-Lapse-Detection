@@ -39,3 +39,9 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+# Focus Alerts helper (generated per computer)
+logs/
+models/
+focus_host_launcher.sh
+focus_host_launcher.bat
+com.icps.focus_alerts.json

@@ -87,13 +87,6 @@ STYLE = {   # BGR colour, title, beep pattern [(Hz, seconds)]
     "stress": ((200, 90, 255), "Take a deep breath", [(440, .4)]),
 }
 BREATH_IN, BREATH_OUT, BREATH_CYCLES = 4.0, 6.0, 6
-# what the extension's demo / preview buttons show (marked "Demo" in the banner)
-DEMO_MSG = {
-    "dozing": "Your eyes were closed for 2.1 seconds.",
-    "drowsy": "Your eyes were closed 18% of the last minute.",
-    "zoning": "Your attention seems to have drifted. Refocus on the call.",
-    "stress": "Your heart rate is high (112 bpm). Follow the breathing guide.",
-}
 
 
 # ============================================================
@@ -270,17 +263,17 @@ class Status:
                      "hr": None, "hr_source": "-", "perclos": None, "zoning_score": None,
                      "zoning_threshold": None, "sim_hr": False, "alerts": []}
         self.next_id = 1
-        self.requests = {"sim_hr": None, "test": [], "settings": None}
+        self.requests = {"settings": None}
 
     def update(self, **kw):
         with self.lock:
             self.data.update(kw)
 
-    def alert(self, kind, msg, t, demo=False):
+    def alert(self, kind, msg, t):
         with self.lock:
             self.data["alerts"] = (self.data["alerts"] + [{
                 "id": self.next_id, "kind": kind, "title": STYLE[kind][1], "msg": msg,
-                "t": round(t, 1), "demo": demo}])[-20:]
+                "t": round(t, 1)}])[-20:]
             self.next_id += 1
 
     def snapshot(self):
@@ -311,10 +304,6 @@ def start_status_server(status, port):
                     if "sens" in q or "en" in q:
                         status.requests["settings"] = (q.get("sens", "normal"),
                                                        set(filter(None, q.get("en", "").split(","))))
-                elif u.path == "/sim":
-                    status.requests["sim_hr"] = q.get("on", "1") == "1"
-                elif u.path == "/test" and q.get("kind") in STYLE:
-                    status.requests["test"].append(q["kind"])
                 elif u.path != "/":
                     return self._send({"error": "unknown path"}, 404)
             self._send(status.snapshot())
@@ -351,7 +340,9 @@ def final_raw_features(fr, t_ms, windows, rp, span_ms=None):
 # MAIN
 # ============================================================
 
-def main():
+def main(argv=None, status=None, stop_event=None):
+    """CLI entry point. The Chrome extension's native helper (focus_host.py) calls this
+    with its own `status` object and a `stop_event` instead of --meet's HTTP server."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="0", help="camera index or video file")
     ap.add_argument("--model", default="lapse_model.joblib")
@@ -364,9 +355,11 @@ def main():
     ap.add_argument("--meet", action="store_true",
                     help="helper for the Google Meet extension (no window/sound, status server)")
     ap.add_argument("--http-port", type=int, default=47813)
-    args = ap.parse_args()
-    status = None
-    if args.meet:
+    ap.add_argument("--log-dir", default=".", help="where alerts_/scores_ CSVs are written")
+    args = ap.parse_args(argv)
+    if status is not None:                       # driven by the Chrome extension (focus_host.py)
+        args.no_window = args.no_sound = args.no_notify = True
+    elif args.meet:
         args.no_window = args.no_sound = args.no_notify = True
         if args.port == cap.ESP32_PORT and sys.platform == "darwin":
             args.port = ""                      # COM ports don't exist on a Mac
@@ -417,11 +410,12 @@ def main():
     rows = collections.deque()
     rgb_buf = collections.deque()
     rppg_rows = collections.deque(maxlen=60)
-    log_path = f"alerts_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    os.makedirs(args.log_dir, exist_ok=True)
+    log_path = os.path.join(args.log_dir, f"alerts_{datetime.now():%Y%m%d_%H%M%S}.csv")
     log = open(log_path, "w", newline="")
     logw = csv.writer(log)
     logw.writerow(["t_s", "alert", "message", "hr", "perclos", "zoning_score"])
-    score_log = open(log_path.replace("alerts_", "scores_"), "w", newline="")
+    score_log = open(os.path.join(args.log_dir, os.path.basename(log_path).replace("alerts_", "scores_")), "w", newline="")
     scorew = csv.writer(score_log)
     scorew.writerow(["t_s", "zoning_score", "perclos", "hr", "hr_source", "calibrated"])
 
@@ -437,6 +431,8 @@ def main():
     i = 0
 
     while True:
+        if stop_event is not None and stop_event.is_set():
+            break
         ok, frame = vid.read()
         if not ok:
             break
@@ -449,6 +445,8 @@ def main():
         if is_file and not args.fast:
             time.sleep(max(0.0, t_ms / 1000 - (time.monotonic() - t0)))
         i += 1
+        if status is not None and i == 1:
+            status.update(started=True)
         t = t_ms / 1000
         h, w = frame.shape[:2]
         cap.FRAME_W, cap.FRAME_H = w, h
@@ -488,11 +486,6 @@ def main():
                     rules.p = dict(PRESETS.get(sens, PRESETS["normal"]))
                     rules.enabled = en or set(STYLE)
                     req["settings"] = None
-                if req["sim_hr"] is not None:
-                    sim_hr, req["sim_hr"] = req["sim_hr"], None
-                tests, req["test"] = req["test"], []
-            for kind in tests:
-                status.alert(kind, DEMO_MSG[kind], t, demo=True)
 
         # ---------- every TICK_S: HR, zoning model, PERCLOS ----------
         if t >= next_tick:

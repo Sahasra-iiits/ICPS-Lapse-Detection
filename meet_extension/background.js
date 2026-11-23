@@ -1,70 +1,129 @@
-// Talks to the local Python helper (live_monitor.py --meet) and keeps the toolbar badge updated.
-const HELPER = "http://127.0.0.1:47813";
+// Starts / stops the local detector (native helper) and shares its live state
+// with the Meet page and the popup.
+const HOST = "com.icps.focus_alerts";
+const HTTP_HELPER = "http://127.0.0.1:47813";   // optional: helper started by hand (live_monitor.py --meet)
 const DEFAULTS = {
   enabled: { dozing: true, drowsy: true, zoning: true, stress: true },
-  sensitivity: "normal", muted: false, showPill: true,
+  sensitivity: "normal", muted: false, showPill: true, autoStart: false,
 };
+
+let port = null;          // native messaging connection
+let on = false;           // user wants monitoring on
+let nativeState = null;   // last state from the helper
+let error = null;         // {code: "not-installed" | "runtime", message}
 let lastAlertId = 0;
 let alertUntil = 0;
+const callTabs = new Set();
 
 async function getSettings() {
   const s = await chrome.storage.sync.get(DEFAULTS);
   return { ...DEFAULTS, ...s, enabled: { ...DEFAULTS.enabled, ...(s.enabled || {}) } };
 }
+const enabledList = (s) => Object.keys(s.enabled).filter((k) => s.enabled[k]);
+const helperSettings = (s) => ({ sensitivity: s.sensitivity, enabled: enabledList(s) });
 
-async function helper(path) {
-  const r = await fetch(HELPER + path, { cache: "no-store" });
-  if (!r.ok) throw new Error("helper " + r.status);
-  return r.json();
-}
-
-function setBadge(state) {
-  if (!state || state.offline || !state.running) {
-    chrome.action.setBadgeText({ text: "off" });
-    chrome.action.setBadgeBackgroundColor({ color: "#9aa0a6" });
-  } else if (Date.now() < alertUntil) {
-    chrome.action.setBadgeText({ text: "!" });
-    chrome.action.setBadgeBackgroundColor({ color: "#d93025" });
-  } else if (state.calibrating) {
-    chrome.action.setBadgeText({ text: "cal" });
-    chrome.action.setBadgeBackgroundColor({ color: "#f9ab00" });
-  } else {
-    chrome.action.setBadgeText({ text: "ok" });
-    chrome.action.setBadgeBackgroundColor({ color: "#1e8e3e" });
-  }
-}
-
-async function poll() {
-  const s = await getSettings();
-  const en = Object.keys(s.enabled).filter((k) => s.enabled[k]).join(",");
+function connect() {
   try {
-    const state = await helper(`/state?sens=${s.sensitivity}&en=${en}`);
-    const newest = state.alerts.length ? state.alerts[state.alerts.length - 1].id : 0;
-    if (newest > lastAlertId) {
-      if (lastAlertId) alertUntil = Date.now() + 10000;
-      lastAlertId = newest;
-    }
-    setBadge(state);
-    return { ...state, settings: s };
+    port = chrome.runtime.connectNative(HOST);
   } catch (e) {
-    const off = { offline: true, settings: s };
-    setBadge(off);
-    return off;
+    error = { code: "not-installed", message: String(e) };
+    return false;
   }
+  port.onMessage.addListener((m) => {
+    if (m.type === "state") nativeState = m;
+    else if (m.type === "error") error = { code: "runtime", message: m.message };
+    updateBadge();
+  });
+  port.onDisconnect.addListener(() => {
+    const msg = chrome.runtime.lastError ? chrome.runtime.lastError.message : "";
+    port = null;
+    nativeState = null;
+    if (on) {
+      on = false;
+      error = /not found|forbidden|not installed/i.test(msg)
+        ? { code: "not-installed", message: msg }
+        : { code: "runtime", message: error && error.message ? error.message : msg || "The detector stopped." };
+    }
+    updateBadge();
+  });
+  return true;
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+async function start() {
+  const s = await getSettings();
+  error = null;
+  on = true;
+  if (!port && !connect()) { on = false; updateBadge(); return; }
+  port.postMessage({ cmd: "start", settings: helperSettings(s) });
+  updateBadge();
+}
+
+function stop() {
+  on = false;
+  nativeState = null;
+  if (port) { try { port.disconnect(); } catch (e) {} port = null; }   // helper exits, camera released
+  updateBadge();
+}
+
+chrome.storage.onChanged.addListener(async () => {
+  if (port) port.postMessage({ cmd: "settings", settings: helperSettings(await getSettings()) });
+});
+
+async function httpState(s) {
+  try {
+    const r = await fetch(`${HTTP_HELPER}/state?sens=${s.sensitivity}&en=${enabledList(s).join(",")}`, { cache: "no-store" });
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
+
+async function view() {
+  const settings = await getSettings();
+  let state = null, mode = "off";
+  if (on) { mode = "native"; state = nativeState || { running: true, started: false, calibrating: true, alerts: [] }; }
+  else {
+    const h = await httpState(settings);
+    if (h && h.running) { mode = "manual"; state = h; }
+  }
+  if (state && state.alerts && state.alerts.length) {
+    const newest = state.alerts[state.alerts.length - 1].id;
+    if (newest > lastAlertId) { if (lastAlertId) alertUntil = Date.now() + 8000; lastAlertId = newest; }
+  }
+  return { settings, on: on || mode === "manual", mode, state, error };
+}
+
+function updateBadge() {
+  let text = "", color = "#b3001b";
+  if (on && Date.now() < alertUntil) text = "!";
+  else if (on && nativeState && nativeState.calibrating) { text = "…"; color = "#e8858f"; }
+  else if (on) text = "on";
+  else if (error) { text = "!"; color = "#80868b"; }
+  chrome.action.setBadgeText({ text });
+  chrome.action.setBadgeBackgroundColor({ color });
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  callTabs.delete(tabId);
+  if (on && callTabs.size === 0) stop();          // last Meet call closed -> stop the camera
+});
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   (async () => {
-    if (msg.type === "poll") return reply(await poll());
-    if (msg.type === "test") {
-      try { await helper(`/test?kind=${msg.kind}`); } catch (e) {}
-      return reply(await poll());
+    if (msg.type === "view") { const v = await view(); updateBadge(); return reply(v); }
+    if (msg.type === "toggle") { (msg.on ? await start() : stop()); return reply(await view()); }
+    if (msg.type === "in-call") {
+      if (sender.tab) callTabs.add(sender.tab.id);
+      const s = await getSettings();
+      if (s.autoStart && !on && !(error && error.code === "not-installed")) await start();
+      return reply(await view());
     }
-    if (msg.type === "sim") {
-      try { await helper(`/sim?on=${msg.on ? 1 : 0}`); } catch (e) {}
-      return reply(await poll());
+    if (msg.type === "left-call") {
+      if (sender.tab) callTabs.delete(sender.tab.id);
+      if (on && callTabs.size === 0) stop();
+      return reply(await view());
     }
     reply({});
   })();
-  return true; // async reply
+  return true;
 });
+
+updateBadge();

@@ -1,9 +1,9 @@
-// Runs inside Google Meet: alert banners, sounds, breathing guide, demo shortcuts.
+// Runs inside Google Meet: the Focus Alerts switch, alert banners, sounds and
+// the breathing guide. All alerts come from the local detector.
 (() => {
   if (window.__icpsFocusAlerts) return;
   window.__icpsFocusAlerts = true;
 
-  // ---------- alert styles (cherry-red family) ----------
   const ICONS = {
     dozing: '<path d="M3 11c2.6 3.2 5.6 4.8 9 4.8s6.4-1.6 9-4.8"/><path d="M6.2 14.6 4.8 16.8M12 15.8v2.6M17.8 14.6l1.4 2.2"/><path d="M15.5 4.5h3l-3 3.5h3"/>',
     drowsy: '<path d="M2.5 12s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6z"/><path d="M3.6 10.6C6.4 9 9.2 8.2 12 8.2s5.6.8 8.4 2.4"/><path d="M9.4 12.4a2.6 2.6 0 0 0 5.2 0"/>',
@@ -20,15 +20,9 @@
     stress: { eyebrow: "Wellbeing", grad: "linear-gradient(120deg,#5a0b1e 0%,#a51d47 50%,#e4587d 100%)", ms: 7000,
               beep: [[440, .4]] },
   };
-  const DEMO = {
-    dozing: { title: "WAKE UP!", msg: "Your eyes were closed for 2.1 seconds." },
-    drowsy: { title: "You're getting drowsy", msg: "Your eyes were closed 18% of the last minute." },
-    zoning: { title: "Zoning out?", msg: "Your attention seems to have drifted. Refocus on the call." },
-    stress: { title: "Take a deep breath", msg: "Your heart rate is high (112 bpm). Follow the breathing guide." },
-  };
   const BREATH_IN = 4, BREATH_OUT = 6, BREATH_CYCLES = 6;
+  const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 
-  // ---------- UI (shadow root, so Meet's styles don't interfere) ----------
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647;";
   document.documentElement.appendChild(host);
@@ -40,8 +34,7 @@
       opacity: 0; transition: transform .45s cubic-bezier(.2,.9,.25,1.15), opacity .3s ease; pointer-events: auto; }
     .wrap.show { transform: translate(-50%, 0); opacity: 1; }
     .card { position: relative; overflow: hidden; display: flex; align-items: center; gap: 16px;
-      padding: 16px 18px 18px 16px; border-radius: 18px; color: #fff;
-      border: 1px solid rgba(255,255,255,.18);
+      padding: 16px 18px 18px 16px; border-radius: 18px; color: #fff; border: 1px solid rgba(255,255,255,.18);
       box-shadow: 0 22px 48px rgba(110,0,22,.45), 0 4px 12px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.28); }
     .card::before { content: ""; position: absolute; inset: 0; pointer-events: none;
       background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 55%); }
@@ -52,28 +45,35 @@
       background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.22); }
     .badge svg { width: 28px; height: 28px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .text { min-width: 0; flex: 1; }
-    .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .12em;
-      text-transform: uppercase; color: rgba(255,255,255,.78); font-weight: 600; }
-    .chip { font-size: 10px; letter-spacing: .08em; padding: 1px 7px; border-radius: 999px;
-      background: rgba(255,255,255,.22); color: #fff; }
+    .eyebrow { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.78); font-weight: 600; }
     .title { font-size: 19px; font-weight: 700; margin-top: 3px; letter-spacing: -.01em; }
     .msg { font-size: 14px; margin-top: 3px; color: rgba(255,255,255,.92); line-height: 1.35; }
     .close { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 0; cursor: pointer;
       background: rgba(255,255,255,.14); display: grid; place-items: center; transition: background .2s; }
     .close:hover { background: rgba(255,255,255,.28); }
-    .close svg { width: 14px; height: 14px; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; }
-    .bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: rgba(255,255,255,.75);
-      transform-origin: left; }
+    .close svg { width: 14px; height: 14px; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; fill: none; }
+    .bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: rgba(255,255,255,.75); transform-origin: left; }
     .wrap:hover .bar { animation-play-state: paused; }
     @keyframes shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
-    .pill { position: fixed; left: 16px; bottom: 96px; display: flex; align-items: center; gap: 9px;
-      padding: 7px 14px 7px 10px; border-radius: 999px; font-size: 12px; color: #fff;
-      background: rgba(26,8,12,.82); border: 1px solid rgba(210,4,45,.45);
-      box-shadow: 0 6px 18px rgba(0,0,0,.3); backdrop-filter: blur(6px); }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: #8a8a8a; }
-    .dot.live { background: #ff4d6d; box-shadow: 0 0 0 0 rgba(255,77,109,.7); animation: live 2s infinite; }
+    .pill { position: fixed; left: 16px; bottom: 96px; display: flex; align-items: center; gap: 10px;
+      padding: 6px 8px 6px 12px; border-radius: 999px; font-size: 12.5px; color: #fff; pointer-events: auto;
+      background: rgba(26,8,12,.86); border: 1px solid rgba(210,4,45,.42);
+      box-shadow: 0 8px 22px rgba(0,0,0,.32); backdrop-filter: blur(8px); max-width: min(560px, 80vw); }
+    .brand { font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+    .sep { width: 1px; height: 14px; background: rgba(255,255,255,.22); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #7d7d7d; flex: none; }
+    .dot.live { background: #ff4d6d; animation: live 2s infinite; }
+    .dot.warm { background: #ffb4a2; }
     @keyframes live { 0% { box-shadow: 0 0 0 0 rgba(255,77,109,.6); } 70% { box-shadow: 0 0 0 7px rgba(255,77,109,0); } 100% { box-shadow: 0 0 0 0 rgba(255,77,109,0); } }
+    .ptext { color: rgba(255,255,255,.86); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .switch { position: relative; width: 36px; height: 20px; flex: none; cursor: pointer; border: 0; border-radius: 999px;
+      background: rgba(255,255,255,.22); transition: background .2s; }
+    .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+      background: #fff; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+    .switch.on { background: #d2042d; }
+    .switch.on::after { transform: translateX(16px); }
+    .switch:disabled { opacity: .45; cursor: default; }
 
     .breath { position: fixed; right: 24px; bottom: 110px; width: 220px; padding: 18px 16px 16px; border-radius: 20px;
       color: #fff; text-align: center; pointer-events: auto; display: none;
@@ -85,49 +85,37 @@
     .ring { width: 150px; height: 150px; margin: 14px auto 12px; border-radius: 50%; display: grid; place-items: center;
       border: 1.5px solid rgba(255,255,255,.22); }
     .ball { width: 46px; height: 46px; border-radius: 50%; transition: width .25s linear, height .25s linear;
-      background: radial-gradient(circle at 35% 30%, #ff8fa3, #d2042d 60%, #8f0018);
-      box-shadow: 0 0 28px rgba(255,77,109,.55); }
+      background: radial-gradient(circle at 35% 30%, #ff8fa3, #d2042d 60%, #8f0018); box-shadow: 0 0 28px rgba(255,77,109,.55); }
     .breath .label { font-size: 17px; font-weight: 700; }
     .breath .sub { font-size: 12px; color: rgba(255,255,255,.65); margin-top: 3px; }
     .breath .close { position: absolute; top: 10px; right: 10px; width: 26px; height: 26px; }
   </style>
-  <div class="wrap" id="wrap">
-    <div class="card" id="card">
-      <div class="badge"><svg viewBox="0 0 24 24" id="icon"></svg></div>
-      <div class="text">
-        <div class="eyebrow"><span id="eyebrow"></span><span class="chip" id="chip">Demo</span></div>
-        <div class="title" id="title"></div>
-        <div class="msg" id="msg"></div>
-      </div>
-      <button class="close" id="close" title="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-      <div class="bar" id="bar"></div>
-    </div>
+  <div class="wrap" id="wrap"><div class="card" id="card">
+    <div class="badge"><svg viewBox="0 0 24 24" id="icon"></svg></div>
+    <div class="text"><div class="eyebrow" id="eyebrow"></div><div class="title" id="title"></div><div class="msg" id="msg"></div></div>
+    <button class="close" id="close" title="Dismiss">${X}</button><div class="bar" id="bar"></div></div></div>
+  <div class="pill" id="pill">
+    <span class="dot" id="dot"></span><span class="brand">Focus Alerts</span><span class="sep"></span>
+    <span class="ptext" id="ptext">Off</span>
+    <button class="switch" id="switch" title="Turn Focus Alerts on or off" aria-label="Focus Alerts"></button>
   </div>
-  <div class="pill" id="pill"><span class="dot" id="dot"></span><span id="ptext">Focus alerts: starting</span></div>
-  <div class="breath" id="breath">
-    <button class="close" id="bclose" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-    <div class="head">Breathing guide</div>
-    <div class="ring"><div class="ball" id="ball"></div></div>
-    <div class="label" id="blabel">Breathe in</div>
-    <div class="sub" id="bsub">Cycle 1 of ${BREATH_CYCLES}</div>
-  </div>`;
+  <div class="breath" id="breath"><button class="close" id="bclose" title="Close">${X}</button>
+    <div class="head">Breathing guide</div><div class="ring"><div class="ball" id="ball"></div></div>
+    <div class="label" id="blabel">Breathe in</div><div class="sub" id="bsub"></div></div>`;
   const $ = (id) => root.getElementById(id);
 
-  // ---------- banner ----------
+  // ---------- alert banner ----------
   let hideTimer = null;
   function showBanner(a) {
     const k = KIND[a.kind] || KIND.zoning;
-    const card = $("card");
-    card.style.background = k.grad;
-    card.classList.toggle("pulse", !!k.pulse);
+    $("card").style.background = k.grad;
+    $("card").classList.toggle("pulse", !!k.pulse);
     $("icon").innerHTML = ICONS[a.kind] || ICONS.zoning;
     $("eyebrow").textContent = k.eyebrow;
-    $("chip").style.display = a.demo ? "inline-block" : "none";
     $("title").textContent = a.title;
     $("msg").textContent = a.msg;
     const bar = $("bar");
-    bar.style.animation = "none";
-    void bar.offsetWidth;                       // restart the countdown bar
+    bar.style.animation = "none"; void bar.offsetWidth;
     bar.style.animation = `shrink ${k.ms}ms linear forwards`;
     $("wrap").classList.add("show");
     clearTimeout(hideTimer);
@@ -138,7 +126,7 @@
   $("wrap").addEventListener("mouseenter", () => clearTimeout(hideTimer));
   $("wrap").addEventListener("mouseleave", () => { hideTimer = setTimeout(hideBanner, 1500); });
 
-  // ---------- sound (Web Audio; unlocked by your first click in Meet) ----------
+  // ---------- sound (allowed after your first click in Meet) ----------
   let ctx = null;
   const unlock = () => { try { ctx = ctx || new AudioContext(); ctx.resume(); } catch (e) {} };
   window.addEventListener("pointerdown", unlock, true);
@@ -150,7 +138,6 @@
       for (const [f, d] of pattern) {
         if (f > 0) {
           const o = ctx.createOscillator(), g = ctx.createGain();
-          o.type = "sine";
           o.frequency.value = f;
           g.gain.setValueAtTime(0.0001, t);
           g.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
@@ -163,7 +150,7 @@
     } catch (e) {}
   }
 
-  // ---------- breathing guide (4 s in, 6 s out) ----------
+  // ---------- breathing guide ----------
   let breathTimer = null;
   function startBreathing() {
     clearInterval(breathTimer);
@@ -174,8 +161,7 @@
       if (el > cyc * BREATH_CYCLES) return stopBreathing();
       const ph = el % cyc, inhale = ph < BREATH_IN;
       const frac = inhale ? ph / BREATH_IN : 1 - (ph - BREATH_IN) / BREATH_OUT;
-      const size = Math.round(46 + 92 * frac);
-      $("ball").style.width = $("ball").style.height = size + "px";
+      $("ball").style.width = $("ball").style.height = Math.round(46 + 92 * frac) + "px";
       $("blabel").textContent = inhale ? "Breathe in" : "Breathe out";
       $("bsub").textContent = `Cycle ${Math.min(BREATH_CYCLES, Math.floor(el / cyc) + 1)} of ${BREATH_CYCLES}`;
     };
@@ -185,80 +171,70 @@
   function stopBreathing() { clearInterval(breathTimer); $("breath").classList.remove("show"); }
   $("bclose").onclick = stopBreathing;
 
-  function present(a, settings) {
-    if (settings && settings.enabled && settings.enabled[a.kind] === false && !a.demo) return;
-    showBanner(a);
-    if (!(settings && settings.muted)) beep((KIND[a.kind] || KIND.zoning).beep);
-    if (a.kind === "stress") startBreathing();
-  }
-
-  // ---------- status pill ----------
-  let lastState = null;
-  function pill(state) {
-    const s = state.settings || {};
+  // ---------- status bar with the on/off switch ----------
+  let current = null;
+  function render(v) {
+    current = v;
+    const s = v.settings || {};
     $("pill").style.display = s.showPill === false ? "none" : "flex";
-    const dot = $("dot");
+    const dot = $("dot"), sw = $("switch"), st = v.state;
     dot.className = "dot";
+    sw.classList.toggle("on", !!v.on);
+    sw.disabled = !!(v.error && v.error.code === "not-installed" && !v.on);
     let text;
-    if (state.offline || !state.running) {
-      text = "Focus alerts: helper not running";
-    } else if (state.calibrating) {
-      dot.style.background = "#ffb4a2";
-      text = `Calibrating${state.calib_left_s != null ? ` (${state.calib_left_s} s)` : ""}: look at the screen, blink normally`;
-    } else if (!state.face) {
-      dot.style.background = "#ffb4a2";
-      text = "Focus alerts: face not visible";
-    } else {
-      dot.style.background = "";
+    if (v.error && v.error.code === "not-installed" && !v.on) text = "One-time setup needed (see the extension menu)";
+    else if (v.error && !v.on) text = "Couldn't start: " + (v.error.message || "unknown error");
+    else if (!v.on) text = "Off";
+    else if (!st || st.started === false) { dot.classList.add("warm"); text = "Starting camera…"; }
+    else if (st.calibrating) { dot.classList.add("warm"); text = `Calibrating${st.calib_left_s != null ? ` · ${st.calib_left_s} s` : ""} · look at the screen`; }
+    else if (!st.face) { dot.classList.add("warm"); text = "Face not visible"; }
+    else {
       dot.classList.add("live");
-      text = "Focus alerts on" + (state.hr ? `  ·  HR ${Math.round(state.hr)}${state.sim_hr ? " (sim)" : ""}` : "") +
-        (state.perclos != null ? `  ·  eyes closed ${Math.round(state.perclos * 100)}%` : "");
+      text = "On" + (st.hr ? ` · HR ${Math.round(st.hr)}` : "");
     }
-    if (s.muted) text += "  ·  muted";
+    if (v.on && s.muted) text += " · muted";
     $("ptext").textContent = text;
   }
+  $("switch").onclick = async () => {
+    const want = !(current && current.on);
+    $("switch").classList.toggle("on", want);
+    unlock();
+    try { render(await chrome.runtime.sendMessage({ type: "toggle", on: want })); } catch (e) {}
+  };
 
-  // ---------- polling the local helper (via the extension background) ----------
+  // ---------- live updates ----------
   let lastSeen = null;
   async function poll() {
-    let state;
-    try { state = await chrome.runtime.sendMessage({ type: "poll" }); }
-    catch (e) { return; }                       // extension was reloaded
-    if (!state) return;
-    lastState = state;
-    pill(state);
-    if (state.offline || !state.alerts) return;
-    if (lastSeen === null) { lastSeen = state.alerts.length ? state.alerts[state.alerts.length - 1].id : 0; return; }
-    for (const a of state.alerts) {
+    let v;
+    try { v = await chrome.runtime.sendMessage({ type: "view" }); } catch (e) { return; }
+    if (!v) return;
+    render(v);
+    const alerts = (v.state && v.state.alerts) || [];
+    const newest = alerts.length ? alerts[alerts.length - 1].id : 0;
+    if (lastSeen === null || newest < lastSeen) { lastSeen = newest; return; }   // new session: don't replay old alerts
+    for (const a of alerts) {
       if (a.id <= lastSeen) continue;
       lastSeen = a.id;
-      present(a, state.settings);
+      if (v.settings.enabled[a.kind] === false) continue;
+      showBanner(a);
+      if (!v.settings.muted) beep((KIND[a.kind] || KIND.zoning).beep);
+      if (a.kind === "stress") startBreathing();
     }
   }
   setInterval(poll, 700);
   poll();
 
-  // ---------- demo: through the helper if it runs, otherwise a local preview ----------
-  async function demo(kind) {
-    let r = null;
-    try { r = await chrome.runtime.sendMessage({ type: "test", kind }); } catch (e) {}
-    if (!r || r.offline) present({ kind, ...DEMO[kind], demo: true }, lastState && lastState.settings);
+  // ---------- call detection (for auto-start, and stopping when you leave) ----------
+  const inCall = () => /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}/i.test(location.pathname);
+  let wasInCall = false;
+  async function checkCall() {
+    const now = inCall();
+    if (now !== wasInCall) {
+      wasInCall = now;
+      try { render(await chrome.runtime.sendMessage({ type: now ? "in-call" : "left-call" })); } catch (e) {}
+    }
   }
-  let demoTimers = [];
-  function demoAll() {
-    demoTimers.forEach(clearTimeout);
-    demoTimers = ["dozing", "drowsy", "zoning", "stress"].map((k, i) => setTimeout(() => demo(k), i * 9000));
-  }
-  chrome.runtime.onMessage.addListener((msg, _s, reply) => {
-    if (msg.type === "demo") demo(msg.kind);
-    if (msg.type === "demo-all") demoAll();
-    reply({ ok: true });
-  });
-  // Alt+Shift+1..4 = one alert, Alt+Shift+D = full demo
-  window.addEventListener("keydown", (e) => {
-    if (!e.altKey || !e.shiftKey) return;
-    const map = { Digit1: "dozing", Digit2: "drowsy", Digit3: "zoning", Digit4: "stress" };
-    if (map[e.code]) { e.preventDefault(); demo(map[e.code]); }
-    else if (e.code === "KeyD") { e.preventDefault(); demoAll(); }
-  }, true);
+  setInterval(checkCall, 1500);
+  checkCall();
+  window.addEventListener("pagehide", () => { try { chrome.runtime.sendMessage({ type: "left-call" }); } catch (e) {} });
 })();

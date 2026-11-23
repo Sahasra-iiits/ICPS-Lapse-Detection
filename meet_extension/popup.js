@@ -1,9 +1,10 @@
 const DEFAULTS = {
   enabled: { dozing: true, drowsy: true, zoning: true, stress: true },
-  sensitivity: "normal", muted: false, showPill: true,
+  sensitivity: "normal", muted: false, showPill: true, autoStart: false,
 };
 const $ = (s) => document.querySelector(s);
 let settings = { ...DEFAULTS };
+let current = null;
 
 async function load() {
   const s = await chrome.storage.sync.get(DEFAULTS);
@@ -12,54 +13,57 @@ async function load() {
   document.querySelectorAll("#sens button").forEach((b) => b.classList.toggle("on", b.dataset.v === settings.sensitivity));
   $("#sound").checked = !settings.muted;
   $("#pill").checked = settings.showPill;
+  $("#auto").checked = settings.autoStart;
 }
 
 async function save() {
   const enabled = {};
   document.querySelectorAll("[data-alert]").forEach((cb) => (enabled[cb.dataset.alert] = cb.checked));
-  settings = { ...settings, enabled, muted: !$("#sound").checked, showPill: $("#pill").checked };
+  settings = { ...settings, enabled, muted: !$("#sound").checked, showPill: $("#pill").checked, autoStart: $("#auto").checked };
   await chrome.storage.sync.set(settings);
-  refresh();
 }
 
-function render(st) {
-  const dot = $("#dot"), grid = $("#grid");
+function render(v) {
+  if (!v) return;
+  current = v;
+  const st = v.state, dot = $("#dot"), grid = $("#grid");
+  const notInstalled = v.error && v.error.code === "not-installed" && !v.on;
+  $("#setup").style.display = notInstalled ? "block" : "none";
+  $("#power").classList.toggle("on", !!v.on);
+  $("#power").disabled = v.mode === "manual";
   dot.className = "dot";
-  if (!st || st.offline || !st.running) {
-    $("#headline").textContent = "Helper not running";
-    grid.innerHTML = `<span>Start it in a terminal:</span><b></b><span><code>python live_monitor.py --meet</code></span><b></b>`;
-    return;
+  grid.innerHTML = "";
+  let head, sub = "";
+  if (notInstalled) { head = "Setup needed"; sub = "Finish the one-time setup below."; }
+  else if (v.error && !v.on) { head = "Couldn't start"; sub = v.error.message || ""; }
+  else if (!v.on) { head = "Off"; sub = "Turn it on here or from the switch in Google Meet."; }
+  else if (!st || st.started === false) { dot.classList.add("warm"); head = "Starting camera"; sub = "This takes a few seconds."; }
+  else if (st.calibrating) { dot.classList.add("warm"); head = `Calibrating${st.calib_left_s != null ? ` · ${st.calib_left_s} s` : ""}`; sub = "Look at the screen and blink normally."; }
+  else if (!st.face) { dot.classList.add("warm"); head = "Face not visible"; sub = "Make sure your face is in view of the camera."; }
+  else { dot.classList.add("live"); head = "Monitoring"; sub = v.mode === "manual" ? "Running from a terminal helper." : "Alerts appear in your Meet tab."; }
+  if (v.on && st && st.started !== false && !st.calibrating) {
+    const pct = (x) => (x == null ? "-" : Math.round(x * 100) + "%");
+    grid.innerHTML = `<span>Heart rate</span><b>${st.hr ? Math.round(st.hr) + " bpm" : "-"}</b>` +
+      `<span>Eyes closed, last minute</span><b>${pct(st.perclos)}</b>` +
+      `<span>Alerts this session</span><b>${st.alerts ? st.alerts.length : 0}</b>`;
   }
-  if (st.calibrating) { dot.classList.add("cal"); $("#headline").textContent = `Calibrating${st.calib_left_s != null ? ` (${st.calib_left_s} s)` : ""}`; }
-  else if (!st.face) { dot.classList.add("cal"); $("#headline").textContent = "Face not visible"; }
-  else { dot.classList.add("live"); $("#headline").textContent = "Monitoring"; }
-  const pct = (v) => (v == null ? "-" : Math.round(v * 100) + "%");
-  const hr = st.hr ? `${Math.round(st.hr)} bpm (${st.hr_source}${st.sim_hr ? ", sim" : ""})` : "-";
-  const zs = st.zoning_score == null ? "-" : st.zoning_score.toFixed(2) + (st.zoning_threshold != null ? ` / ${Number(st.zoning_threshold).toFixed(2)}` : "");
-  grid.innerHTML = `<span>Heart rate</span><b>${hr}</b><span>Eyes closed, last minute</span><b>${pct(st.perclos)}</b>` +
-    `<span>Zoning score / alert level</span><b>${zs}</b><span>Alerts this session</span><b>${st.alerts ? st.alerts.length : 0}</b>`;
-  $("#sim").checked = !!st.sim_hr;
+  $("#headline").textContent = head;
+  $("#sub").textContent = sub;
+  $("#hsub").textContent = v.on ? "On" : "Off";
 }
 
-async function refresh() { render(await chrome.runtime.sendMessage({ type: "poll" })); }
+async function refresh() { try { render(await chrome.runtime.sendMessage({ type: "view" })); } catch (e) {} }
 
-async function toMeet(msg) {
-  const tabs = await chrome.tabs.query({ url: "https://meet.google.com/*" });
-  const tab = tabs.find((t) => t.active) || tabs[0];
-  if (!tab) { $("#note").textContent = "Open a Google Meet tab first."; return; }
-  $("#note").textContent = "";
-  try { await chrome.tabs.sendMessage(tab.id, msg); await chrome.tabs.update(tab.id, { active: true }); }
-  catch (e) { $("#note").textContent = "Reload the Meet tab once so the extension can attach."; }
-}
-
-document.querySelectorAll("[data-alert], #sound, #pill").forEach((x) => x.addEventListener("change", save));
+$("#power").addEventListener("click", async () => {
+  const want = !(current && current.on);
+  $("#power").classList.toggle("on", want);
+  render(await chrome.runtime.sendMessage({ type: "toggle", on: want }));
+});
+document.querySelectorAll("[data-alert], #sound, #pill, #auto").forEach((x) => x.addEventListener("change", save));
 document.querySelectorAll("#sens button").forEach((b) => b.addEventListener("click", () => {
   settings.sensitivity = b.dataset.v;
   document.querySelectorAll("#sens button").forEach((x) => x.classList.toggle("on", x === b));
   save();
 }));
-document.querySelectorAll("[data-demo]").forEach((b) => b.addEventListener("click", () => toMeet({ type: "demo", kind: b.dataset.demo })));
-$("#demoAll").addEventListener("click", () => toMeet({ type: "demo-all" }));
-$("#sim").addEventListener("change", async (e) => render(await chrome.runtime.sendMessage({ type: "sim", on: e.target.checked })));
 load().then(refresh);
 setInterval(refresh, 1000);

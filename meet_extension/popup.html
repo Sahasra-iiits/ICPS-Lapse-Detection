@@ -1,22 +1,36 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><style>
-  :root { --cherry: #b3001b; --cherry-dark: #6e0014; --cherry-soft: #fde8eb; --ink: #241417; --muted: #7a6266; --line: #f1d6db; }
+  :root { --cherry: #b3001b; --cherry-dark: #6e0014; --cherry-soft: #fdecef; --ink: #241417; --muted: #7a6266; --line: #f1d6db; }
   * { box-sizing: border-box; }
-  body { width: 330px; margin: 0; font: 13px/1.4 "Google Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: #fff; }
-  header { padding: 16px 16px 14px; color: #fff; background: linear-gradient(120deg, #4a000e 0%, #8f0018 45%, #d2042d 100%); position: relative; overflow: hidden; }
-  header::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.22), rgba(255,255,255,0) 55%); }
-  header h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
-  header p { margin: 2px 0 0; font-size: 12px; opacity: .8; }
-  main { padding: 12px 14px 14px; }
+  body { width: 340px; margin: 0; font: 13px/1.4 "Google Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: #fff; }
+  header { display: flex; align-items: center; gap: 12px; padding: 16px; color: #fff; position: relative; overflow: hidden;
+    background: linear-gradient(120deg, #4a000e 0%, #8f0018 45%, #d2042d 100%); }
+  header::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.22), rgba(255,255,255,0) 55%); }
+  header img { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.15); padding: 3px; }
+  header .t { flex: 1; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 700; }
+  header p { margin: 1px 0 0; font-size: 12px; opacity: .85; }
+  .big { position: relative; z-index: 1; width: 46px; height: 26px; border: 0; border-radius: 999px; cursor: pointer; background: rgba(255,255,255,.3); transition: background .2s; }
+  .big::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+  .big.on { background: #fff3; box-shadow: inset 0 0 0 2px #fff; }
+  .big.on::after { transform: translateX(20px); }
+  .big:disabled { opacity: .5; cursor: default; }
+  main { padding: 12px 14px 6px; }
   .status { border: 1px solid var(--line); background: var(--cherry-soft); border-radius: 12px; padding: 10px 12px; }
-  .status .head { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 6px; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: #a9a9a9; }
+  .status .head { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+  .status .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #a9a9a9; flex: none; }
   .dot.live { background: #d2042d; box-shadow: 0 0 0 3px rgba(210,4,45,.18); }
-  .dot.cal { background: #f28b82; }
-  .grid { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; color: var(--muted); }
+  .dot.warm { background: #f28b82; }
+  .grid { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; color: var(--muted); margin-top: 8px; }
+  .grid:empty { display: none; }
   .grid b { color: var(--ink); font-weight: 600; text-align: right; }
-  h2 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 2px 6px; font-weight: 700; }
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 7px 2px; border-bottom: 1px solid #f6e9eb; }
+  .setup { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; display: none; }
+  .setup b { display: block; margin-bottom: 4px; color: var(--cherry-dark); }
+  .setup ol { margin: 4px 0 0 18px; padding: 0; color: var(--muted); }
+  code { font: 11px ui-monospace, Menlo, monospace; background: var(--cherry-soft); border-radius: 4px; padding: 1px 4px; color: var(--cherry-dark); }
+  h2 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 2px 4px; font-weight: 700; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 2px; border-bottom: 1px solid #f6e9eb; }
   .row:last-child { border-bottom: 0; }
   .row small { display: block; color: var(--muted); font-size: 11px; }
   .switch { position: relative; width: 34px; height: 20px; flex: none; }
@@ -25,52 +39,44 @@
   .slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px; border-radius: 50%; background: #fff; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
   .switch input:checked + .slider { background: var(--cherry); }
   .switch input:checked + .slider::before { transform: translateX(14px); }
-  .seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: none; }
   .seg button { border: 0; background: #fff; padding: 5px 10px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
   .seg button.on { background: var(--cherry); color: #fff; }
-  .primary { width: 100%; border: 0; border-radius: 10px; padding: 10px; font: inherit; font-weight: 700; color: #fff; cursor: pointer;
-    background: linear-gradient(120deg, #8f0018, #d2042d); box-shadow: 0 6px 16px rgba(179,0,27,.3); }
-  .primary:hover { filter: brightness(1.08); }
-  .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
-  .chips button { border: 1px solid var(--line); background: #fff; color: var(--cherry-dark); border-radius: 9px; padding: 7px 8px; font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
-  .chips button:hover { background: var(--cherry-soft); }
-  .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
-  kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; }
-  code { font: 11px ui-monospace, Menlo, monospace; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
-  .note { color: #a3001c; font-size: 11px; margin-top: 6px; min-height: 14px; }
   footer { padding: 8px 14px 12px; color: var(--muted); font-size: 11px; border-top: 1px solid #f6e9eb; }
 </style></head>
 <body>
-  <header><h1>ICPS Focus Alerts</h1><p>Attention and wellbeing alerts for Google Meet</p></header>
+  <header>
+    <img src="icons/icon48.png" alt="">
+    <div class="t"><h1>Focus Alerts</h1><p id="hsub">Off</p></div>
+    <button class="big" id="power" title="Turn Focus Alerts on or off" aria-label="Focus Alerts on/off"></button>
+  </header>
   <main>
     <div class="status">
-      <div class="head"><span class="dot" id="dot"></span><span id="headline">Connecting</span></div>
+      <div class="head"><span class="dot" id="dot"></span><span id="headline">Off</span></div>
+      <div class="sub" id="sub">Turn it on here or from the switch in Google Meet.</div>
       <div class="grid" id="grid"></div>
+    </div>
+    <div class="setup" id="setup">
+      <b>One-time setup</b>
+      Focus Alerts needs its local detector registered with Chrome:
+      <ol>
+        <li>In the project folder, double-click <code>install_helper.command</code> (Mac) or <code>install_helper.bat</code> (Windows).</li>
+        <li>Come back here and switch Focus Alerts on.</li>
+      </ol>
     </div>
 
     <h2>Alerts</h2>
     <div class="row"><div>Dozing off<small>Eyes closed or head dropping</small></div><label class="switch"><input type="checkbox" data-alert="dozing"><span class="slider"></span></label></div>
-    <div class="row"><div>Drowsiness<small>Eyes closing often (PERCLOS)</small></div><label class="switch"><input type="checkbox" data-alert="drowsy"><span class="slider"></span></label></div>
-    <div class="row"><div>Zoning out<small>Attention model</small></div><label class="switch"><input type="checkbox" data-alert="zoning"><span class="slider"></span></label></div>
-    <div class="row"><div>High heart rate<small>Breathing guide</small></div><label class="switch"><input type="checkbox" data-alert="stress"><span class="slider"></span></label></div>
+    <div class="row"><div>Drowsiness<small>Eyes closing often over the last minute</small></div><label class="switch"><input type="checkbox" data-alert="drowsy"><span class="slider"></span></label></div>
+    <div class="row"><div>Zoning out<small>Signs your attention drifted</small></div><label class="switch"><input type="checkbox" data-alert="zoning"><span class="slider"></span></label></div>
+    <div class="row"><div>High heart rate<small>Suggests a breathing exercise</small></div><label class="switch"><input type="checkbox" data-alert="stress"><span class="slider"></span></label></div>
 
     <h2>Settings</h2>
     <div class="row"><div>Sensitivity</div><div class="seg" id="sens"><button data-v="low">Low</button><button data-v="normal">Normal</button><button data-v="high">High</button></div></div>
+    <div class="row"><div>Start automatically<small>When you join a Meet call</small></div><label class="switch"><input type="checkbox" id="auto"><span class="slider"></span></label></div>
     <div class="row"><div>Sound</div><label class="switch"><input type="checkbox" id="sound"><span class="slider"></span></label></div>
     <div class="row"><div>Status bar in Meet</div><label class="switch"><input type="checkbox" id="pill"><span class="slider"></span></label></div>
-
-    <h2>Demo</h2>
-    <button class="primary" id="demoAll">Run full demo</button>
-    <div class="chips">
-      <button data-demo="dozing">Preview: dozing off</button>
-      <button data-demo="drowsy">Preview: drowsiness</button>
-      <button data-demo="zoning">Preview: zoning out</button>
-      <button data-demo="stress">Preview: breathing</button>
-    </div>
-    <div class="row" style="margin-top:6px"><div>Simulate high heart rate<small>Adds 35 bpm (shown as "sim")</small></div><label class="switch"><input type="checkbox" id="sim"><span class="slider"></span></label></div>
-    <div class="note" id="note"></div>
-    <div class="hint">Shortcuts in Meet: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd>..<kbd>4</kbd> one alert, <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> full demo.</div>
   </main>
-  <footer>Runs on this computer only. Helper: <code>python live_monitor.py --meet</code></footer>
+  <footer>Your video never leaves this computer. Alerts are only shown to you.</footer>
   <script src="popup.js"></script>
 </body></html>
