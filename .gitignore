@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Recorded participant data (faces, voices, physiology) — never commit
+recordings/
+icps_audio/
+icps_videos/
+experiment_events/
+*.mp4
+*.wav
+
+# Generated model outputs
+*.joblib
+lapse_dataset.csv
+lapse_results.csv
+
+# Secrets / local config
+.env
+config_local.py
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
