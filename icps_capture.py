@@ -55,7 +55,7 @@ ESP32_BAUD = 115200
 MYSQL_HOST = "localhost"
 MYSQL_PORT = 3306
 MYSQL_USER = "root"
-MYSQL_PASSWORD = "Sahasra.0"
+MYSQL_PASSWORD = os.environ.get("ICPS_MYSQL_PASSWORD", "")
 MYSQL_DATABASE = "icps"
 
 MODEL_PATH = "face_landmarker.task"
