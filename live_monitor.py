@@ -4,6 +4,13 @@ Live monitor with alerts (runs next to Meet / Zoom).
     python live_monitor.py                                # webcam
     python live_monitor.py --model lapse_model.joblib     # + trained zoning-out model
     python live_monitor.py --source some_session.mp4      # replay a recording (demo)
+    python live_monitor.py --meet                         # helper for the Google Meet extension
+
+--meet: no camera window, no sound from Python; instead a small status server on
+http://127.0.0.1:47813 (this computer only) that the Chrome extension in
+meet_extension/ reads to show banners + sounds inside Google Meet.
+--model accepts a train_final.py model (e.g. final_model_face_only.joblib) or a
+train_lapse_model.py model.
 
 Alerts (beep + on-screen banner + desktop notification; Windows/Linux need `plyer`):
   DOZING OFF   eyes closed >= 1.5 s, or head dropping with eyes closing (microsleep)
@@ -25,12 +32,15 @@ line up exactly with the recording's events.
 import argparse
 import collections
 import csv
+import json
 import os
 import subprocess
 import sys
 import threading
 import time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 import cv2
 import mediapipe as mp
@@ -63,6 +73,13 @@ HR_ABS, HR_REL, HR_SUSTAIN_S = 100.0, 20.0, 15.0
 SIM_HR_OFFSET = 35.0
 
 COOLDOWN = {"dozing": 10, "drowsy": 60, "zoning": 45, "stress": 120}
+# sensitivity presets (the extension's popup switches between them)
+PRESETS = {
+    "low":    dict(microsleep_s=2.0, perclos=0.20, zone_consec=3, hr_rel=25.0),
+    "normal": dict(microsleep_s=MICROSLEEP_S, perclos=PERCLOS_ALERT, zone_consec=ZONE_CONSEC, hr_rel=HR_REL),
+    "high":   dict(microsleep_s=1.0, perclos=0.10, zone_consec=1, hr_rel=15.0),
+}
+ZONE_SMOOTH_TICKS = 30    # final model: score smoothed over ~60 s (drowsiness is a state)
 STYLE = {   # BGR colour, title, beep pattern [(Hz, seconds)]
     "dozing": ((0, 0, 255), "WAKE UP!", [(1200, .15), (0, .05)] * 4),
     "drowsy": ((0, 140, 255), "You're getting drowsy", [(900, .2), (0, .1), (900, .2)]),
@@ -78,6 +95,8 @@ BREATH_IN, BREATH_OUT, BREATH_CYCLES = 4.0, 6.0, 6
 
 class AlertRules:
     def __init__(self):
+        self.p = dict(PRESETS["normal"])
+        self.enabled = {"dozing", "drowsy", "zoning", "stress"}
         self.last = {}
         self.closed_since = None
         self.drop_since = None
@@ -86,7 +105,7 @@ class AlertRules:
         self.zone_streak = 0
 
     def _fire(self, kind, t, msg):
-        if t - self.last.get(kind, -1e9) < COOLDOWN[kind]:
+        if kind not in self.enabled or t - self.last.get(kind, -1e9) < COOLDOWN[kind]:
             return []
         self.last[kind] = t
         return [(kind, msg)]
@@ -95,7 +114,7 @@ class AlertRules:
         out = []
         closed = face and closure is not None and closure >= lf.BLINK_CLOSURE
         self.closed_since = (self.closed_since if self.closed_since is not None else t) if closed else None
-        if self.closed_since is not None and t - self.closed_since >= MICROSLEEP_S:
+        if self.closed_since is not None and t - self.closed_since >= self.p["microsleep_s"]:
             out += self._fire("dozing", t, f"Eyes closed for {t - self.closed_since:.1f} s")
 
         drop = closed and pitch_dev is not None and abs(pitch_dev) >= HEAD_DROP_DEG
@@ -115,18 +134,18 @@ class AlertRules:
     def on_tick(self, t, zoning, hr, hr_base):
         out = []
         h = self.closure_hist
-        if len(h) > 10 and h[-1][0] - h[0][0] >= 0.8 * PERCLOS_WIN_S and self.perclos() >= PERCLOS_ALERT:
+        if len(h) > 10 and h[-1][0] - h[0][0] >= 0.8 * PERCLOS_WIN_S and self.perclos() >= self.p["perclos"]:
             out += self._fire("drowsy", t, f"Eyes closed {self.perclos():.0%} of the last minute")
 
         self.zone_streak = self.zone_streak + 1 if zoning else 0
-        if self.zone_streak >= ZONE_CONSEC:
+        if self.zone_streak >= self.p["zone_consec"]:
             out += self._fire("zoning", t, "Looks like your attention drifted - refocus on the call")
 
         if hr is not None and np.isfinite(hr):
             self.hr_hist.append((t, hr))
         while self.hr_hist and self.hr_hist[0][0] < t - HR_SUSTAIN_S:
             self.hr_hist.popleft()
-        thr = max(HR_ABS, hr_base + HR_REL) if np.isfinite(hr_base) else HR_ABS
+        thr = max(HR_ABS, hr_base + self.p["hr_rel"]) if np.isfinite(hr_base) else HR_ABS
         if len(self.hr_hist) >= 0.7 * HR_SUSTAIN_S / TICK_S:
             med = float(np.median([v for _, v in self.hr_hist]))
             if med >= thr:
@@ -233,6 +252,94 @@ def staring_rule(f, base):
 
 
 # ============================================================
+# STATUS SERVER (for the Google Meet extension)
+# ============================================================
+
+class Status:
+    """Shared state read by the Chrome extension over http://127.0.0.1."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.data = {"running": True, "calibrating": True, "calib_left_s": None, "face": False,
+                     "hr": None, "hr_source": "-", "perclos": None, "zoning_score": None,
+                     "zoning_threshold": None, "sim_hr": False, "alerts": []}
+        self.next_id = 1
+        self.requests = {"sim_hr": None, "test": [], "settings": None}
+
+    def update(self, **kw):
+        with self.lock:
+            self.data.update(kw)
+
+    def alert(self, kind, msg, t):
+        with self.lock:
+            self.data["alerts"] = (self.data["alerts"] + [{
+                "id": self.next_id, "kind": kind, "title": STYLE[kind][1], "msg": msg, "t": round(t, 1)}])[-20:]
+            self.next_id += 1
+
+    def snapshot(self):
+        with self.lock:
+            return json.loads(json.dumps(self.data, default=lambda o: None))
+
+
+def start_status_server(status, port):
+    class H(BaseHTTPRequestHandler):
+        def _send(self, obj, code=200):
+            body = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self):
+            self._send({})
+
+        def do_GET(self):
+            u = urlparse(self.path)
+            q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            with status.lock:
+                if u.path == "/state":
+                    if "sens" in q or "en" in q:
+                        status.requests["settings"] = (q.get("sens", "normal"),
+                                                       set(filter(None, q.get("en", "").split(","))))
+                elif u.path == "/sim":
+                    status.requests["sim_hr"] = q.get("on", "1") == "1"
+                elif u.path == "/test" and q.get("kind") in STYLE:
+                    status.requests["test"].append(q["kind"])
+                elif u.path != "/":
+                    return self._send({"error": "unknown path"}, 404)
+            self._send(status.snapshot())
+
+        def log_message(self, *a):
+            pass
+
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    except OSError:
+        raise SystemExit(f"Port {port} is already in use - is another live_monitor.py --meet running? "
+                         f"Close it (or the other program using port {port}) and try again.")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    print(f"Meet extension helper running on http://127.0.0.1:{port}  (local only)")
+    return srv
+
+
+def is_final_model(model):
+    return model is not None and "windows_s" in model
+
+
+def final_raw_features(fr, t_ms, windows, rp, span_ms=None):
+    """Physical features at each window length ending at t_ms (train_final.py format)."""
+    out = {}
+    for w in windows:
+        win = int(min(w * 1000, span_ms)) if span_ms else int(w * 1000)
+        f = lf.window_features(fr, None, t_ms, win, None, rp)
+        for c in lf.PHYSICAL_FEATURES:
+            out[f"{c}@{w}"] = f.get(c, np.nan)
+    return out
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -246,13 +353,30 @@ def main():
     ap.add_argument("--no-notify", action="store_true", help="no desktop notifications")
     ap.add_argument("--no-window", action="store_true")
     ap.add_argument("--fast", action="store_true", help="file replay: don't wait in real time")
+    ap.add_argument("--meet", action="store_true",
+                    help="helper for the Google Meet extension (no window/sound, status server)")
+    ap.add_argument("--http-port", type=int, default=47813)
     args = ap.parse_args()
+    status = None
+    if args.meet:
+        args.no_window = args.no_sound = args.no_notify = True
+        if args.port == cap.ESP32_PORT and sys.platform == "darwin":
+            args.port = ""                      # COM ports don't exist on a Mac
+        status = Status()
+        start_status_server(status, args.http_port)
 
     model = None
     if args.model and os.path.exists(args.model):
         import joblib
         model = joblib.load(args.model)
-        print(f"Zoning-out model: {model['model_name']} on {model.get('feature_set', '?')}")
+        if is_final_model(model):
+            if model.get("behaviour"):
+                print("Note: this model expects response-time features, which a live call doesn't "
+                      "have. Use the face-only model (train_final.py without --behaviour).")
+            print(f"Zoning-out model: final model ({len(model['features'])} features, "
+                  f"windows {model['windows_s']} s)")
+        else:
+            print(f"Zoning-out model: {model['model_name']} on {model.get('feature_set', '?')}")
     else:
         print("No trained model found - using the simple staring rule for zoning out.")
 
@@ -300,6 +424,7 @@ def main():
     next_tick = 0.0
     zone_score = np.nan
     hr_now, hr_src = np.nan, "-"
+    zone_ema = None
     t0 = time.monotonic()
     i = 0
 
@@ -347,6 +472,19 @@ def main():
             rows.popleft()
 
         alerts = []
+        if status is not None:
+            with status.lock:
+                req = status.requests
+                if req["settings"]:
+                    sens, en = req["settings"]
+                    rules.p = dict(PRESETS.get(sens, PRESETS["normal"]))
+                    rules.enabled = en or set(STYLE)
+                    req["settings"] = None
+                if req["sim_hr"] is not None:
+                    sim_hr, req["sim_hr"] = req["sim_hr"], None
+                tests, req["test"] = req["test"], []
+            for kind in tests:
+                alerts.append((kind, "Test alert from the extension popup"))
 
         # ---------- every TICK_S: HR, zoning model, PERCLOS ----------
         if t >= next_tick:
@@ -375,7 +513,18 @@ def main():
                 rp = pd.DataFrame(list(rppg_rows), columns=["t_ms", "hr_rppg", "rppg_snr"])
                 wf = lf.window_features(fr, None, t_ms, int(lf.WINDOW_S * 1000), None, rp)
                 if wf.get("n_frames", 0) >= 50:
-                    if model is not None:
+                    if is_final_model(model):
+                        raw = final_raw_features(fr, t_ms, model["windows_s"], rp)
+                        x = dict(raw)
+                        x.update({k + "_pd": v - base["final_base"].get(k, np.nan) for k, v in raw.items()})
+                        X = pd.DataFrame([x]).reindex(columns=model["features"]).astype(float)
+                        X = X.fillna(pd.Series(model["medians"])).fillna(0)
+                        p = float(model["model"].predict_proba(X)[0, 1])
+                        a = 1 - 0.5 ** (1 / ZONE_SMOOTH_TICKS)
+                        zone_ema = p if zone_ema is None else zone_ema + a * (p - zone_ema)
+                        zone_score = zone_ema
+                        zoning = zone_score >= model["thresholds"]["trial"]
+                    elif model is not None:
                         x = zscore(wf, base)
                         X = pd.DataFrame([x]).reindex(columns=model["features"]).astype(float)
                         zone_score = float(model["model"].predict_proba(X)[0, 1])
@@ -386,6 +535,15 @@ def main():
                 else:
                     zoning = False
                 alerts += rules.on_tick(t, zoning, hr_used, base["hr_base"])
+            if status is not None:
+                status.update(calibrating=base is None,
+                              calib_left_s=None if base else max(0, round(args.calib - t)),
+                              hr=round(hr_used, 1) if np.isfinite(hr_used) else None, hr_source=hr_src,
+                              perclos=round(float(rules.perclos()), 3) if np.isfinite(rules.perclos()) else None,
+                              zoning_score=round(zone_score, 3) if np.isfinite(zone_score) else None,
+                              zoning_threshold=(model["thresholds"]["trial"] if is_final_model(model)
+                                                else model["threshold"] if model else None),
+                              sim_hr=sim_hr)
             scorew.writerow([round(t, 2), round(zone_score, 4) if np.isfinite(zone_score) else "",
                              round(rules.perclos(), 4) if np.isfinite(rules.perclos()) else "",
                              round(hr_used, 1) if np.isfinite(hr_used) else "", hr_src, int(base is not None)])
@@ -399,8 +557,12 @@ def main():
             pitch_dev = f["pitch"] - base["pitch"] if f["pitch"] is not None else None
             alerts += rules.on_frame(t, bool(f["face_present"]), closure, pitch_dev)
 
+        if status is not None:
+            status.update(face=bool(f["face_present"]))
         for kind, msg in alerts:
             notifier.alert(t, kind, msg)
+            if status is not None:
+                status.alert(kind, msg, t)
             logw.writerow([round(t, 2), kind, msg, round(hr_now, 1) if np.isfinite(hr_now) else "",
                            round(rules.perclos(), 3), round(zone_score, 3)])
             log.flush()
@@ -436,6 +598,8 @@ def main():
     log.close()
     score_log.close()
     cap.stop_threads.set()
+    if status is not None:
+        status.update(running=False)
     print("Alerts saved to", log_path)
 
 
@@ -456,6 +620,11 @@ def calibrate(df, hr_calib, rppg_rows, model):
     base["med"], base["scale"], _ = lf.session_baseline(sess, int(lf.WINDOW_S * 1000))
     gd = base["med"].get("gaze_dispersion", np.nan)
     base["gaze_dispersion_p25"] = gd * 0.6 if np.isfinite(gd) else np.nan
+    if is_final_model(model):             # alert baseline = the calibration period (like the PVT-B rest)
+        a, b = float(df.timestamp_ms.min()), float(df.timestamp_ms.max())
+        feats = [final_raw_features(fr, t, model["windows_s"], rp, span_ms=b - a)
+                 for t in np.arange(a + 10000, b + 1, 2000)]
+        base["final_base"] = pd.DataFrame(feats).median().to_dict()
     return base
 
 

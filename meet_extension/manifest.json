@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "ICPS Focus Alerts",
+  "version": "1.0",
+  "description": "Alerts you inside Google Meet when you doze off, get drowsy, zone out, or your heart rate is high. All processing stays on your computer.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:47813/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://meet.google.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ],
+  "action": {
+    "default_title": "ICPS Focus Alerts",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

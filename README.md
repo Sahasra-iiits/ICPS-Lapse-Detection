@@ -4,6 +4,14 @@ Detecting transient cognitive lapses and drowsiness during online communication 
 
 How to set up, collect data, train and test: see [TESTING.md](TESTING.md).
 
+## Google Meet extension
+
+Live alerts inside Google Meet for dozing off, drowsiness, zoning out and high heart rate (with a breathing guide). Everything is processed locally. Setup: [meet_extension/README.md](meet_extension/README.md).
+
+```bash
+python live_monitor.py --meet --model ../final_results/final_model_face_only.joblib
+```
+
 ## Data
 
 | | People | Trials | Lapses | Not lapses |

@@ -150,6 +150,14 @@ Alert rules:
 
 ---
 
+### Inside Google Meet (extension)
+See `meet_extension/README.md`:
+1. Load the extension in `chrome://extensions` (Developer mode → Load unpacked → `meet_extension`).
+2. Run `python live_monitor.py --meet`.
+3. Join a call and click once in the page.
+
+Use the popup's **Test** buttons and **Simulate high heart rate** for a demo.
+
 ## 5. How well does the monitor catch real lapses?
 
 Replay a PVT-B recording through the monitor, then compare its alerts and scores with the real lapses:

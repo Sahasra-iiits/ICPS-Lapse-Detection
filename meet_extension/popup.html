@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  body { width: 300px; margin: 0; padding: 14px; font: 13px/1.4 Roboto, Arial, sans-serif; color: #202124; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  .status { padding: 8px 10px; border-radius: 8px; background: #f1f3f4; margin-bottom: 10px; }
+  .status b { display: block; margin-bottom: 2px; }
+  fieldset { border: 1px solid #dadce0; border-radius: 8px; margin: 0 0 10px; padding: 6px 10px 8px; }
+  legend { font-weight: 600; padding: 0 4px; }
+  label { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  select { margin-left: auto; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { border: 1px solid #dadce0; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #f1f3f4; }
+  .hint { color: #5f6368; font-size: 11px; margin-top: 6px; }
+</style></head>
+<body>
+  <h1>ICPS Focus Alerts</h1>
+  <div class="status" id="status"><b>Connecting…</b></div>
+  <fieldset><legend>Alerts</legend>
+    <label><input type="checkbox" data-alert="dozing"> 😴 Dozing off (eyes closed / head drop)</label>
+    <label><input type="checkbox" data-alert="drowsy"> 🥱 Drowsy (eyes closing often)</label>
+    <label><input type="checkbox" data-alert="zoning"> 💭 Zoning out</label>
+    <label><input type="checkbox" data-alert="stress"> 🫁 High heart rate → breathing</label>
+  </fieldset>
+  <fieldset><legend>Settings</legend>
+    <label>Sensitivity <select id="sens"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
+    <label><input type="checkbox" id="muted"> Mute sounds</label>
+    <label><input type="checkbox" id="pill"> Show status in Meet</label>
+  </fieldset>
+  <fieldset><legend>Demo / test</legend>
+    <div class="row">
+      <button data-test="dozing">Test 😴</button><button data-test="drowsy">Test 🥱</button>
+      <button data-test="zoning">Test 💭</button><button data-test="stress">Test 🫁</button>
+    </div>
+    <label style="margin-top:8px"><input type="checkbox" id="sim"> Simulate high heart rate (+35 bpm)</label>
+    <div class="hint">Everything runs on this computer. Start the helper with<br><code>python live_monitor.py --meet</code></div>
+  </fieldset>
+  <script src="popup.js"></script>
+</body></html>
