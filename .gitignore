@@ -18,6 +18,10 @@ experiment_events/
 lapse_dataset.csv
 lapse_results.csv
 ablation_results.csv
+model_comparison.csv
+cross_dataset_results.csv
+drozy_converted/
+DROZY/
 alerts_*.csv
 scores_*.csv
 rppg_validation*

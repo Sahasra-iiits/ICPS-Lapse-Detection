@@ -150,6 +150,9 @@ def load_session(data_dir, session_id):
         "events": events,
         "audio": audio,
         "rppg": rppg,
+        "augmented": bool(meta.get("augmented_from")),
+        "dataset": meta.get("dataset", "own"),
+        "pvt_lapse_ms": float(meta.get("lapse_threshold_ms", PVT_LAPSE_MS)),
     }
 
 
@@ -471,7 +474,7 @@ def lapse_rt_threshold(events):
     return max(LAPSE_RT_MIN_MS, LAPSE_RT_FACTOR * med)
 
 
-def label_points(events):
+def label_points(events, pvt_lapse_ms=PVT_LAPSE_MS):
     """(t_end_ms, label, source, rt_ms) for every labelled example."""
     thr = lapse_rt_threshold(events)
     pts = []
@@ -483,7 +486,7 @@ def label_points(events):
             pts.append((int(e.timestamp_ms), lapse, "probe", rt))
         elif e.event_type == "pvt":
             rt = e.rt_ms
-            lapse = int(pd.isna(rt) or rt >= PVT_LAPSE_MS)
+            lapse = int(pd.isna(rt) or rt >= pvt_lapse_ms)
             pts.append((int(e.timestamp_ms), lapse, "pvt", rt))
         elif e.event_type == "self_report":
             pts.append((int(e.timestamp_ms) - REPORT_GAP_MS, 1, "self_report", np.nan))
@@ -513,7 +516,7 @@ def build_dataset(data_dir, win_s=WINDOW_S, min_frames=50):
 
     for sid in list_sessions(data_dir):
         sess = load_session(data_dir, sid)
-        pts = label_points(sess["events"])
+        pts = label_points(sess["events"], sess["pvt_lapse_ms"])
         if not pts:
             continue
 
@@ -527,14 +530,15 @@ def build_dataset(data_dir, win_s=WINDOW_S, min_frames=50):
             if f.get("n_frames", 0) < min_frames:
                 continue
             f.update(session_id=sid, participant=sess["participant"],
-                     t_end_ms=t_end, label=y, source=src, rt_ms=rt)
+                     t_end_ms=t_end, label=y, source=src, rt_ms=rt,
+                     augmented=int(sess["augmented"]), dataset=sess["dataset"])
             rows.append(f)
 
     return pd.DataFrame(rows)
 
 
 META_COLS = ["session_id", "participant", "t_end_ms", "label", "source",
-             "rt_ms", "n_frames"]
+             "rt_ms", "n_frames", "augmented", "dataset"]
 
 
 def feature_columns(df):

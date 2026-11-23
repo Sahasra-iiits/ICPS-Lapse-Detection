@@ -66,8 +66,29 @@ python validate_rppg.py --data recordings              # only if the ESP32 was u
 ```
 Outputs:
 - `ablation_results.csv`: which feature groups help.
-- `lapse_model.joblib`: the trained model.
+- `model_comparison.csv`: 5 models (logistic regression, SVM, random forest, gradient boosting, MLP) × {real data, +SMOTE, +augmentation, +both}.
+- `lapse_model.joblib`: the best model.
 - `rppg_validation.png`: the heart-rate comparison plot.
+
+### More training data: augmentation + SMOTE
+```bash
+python augment_videos.py --data recordings --copies 3     # before train_lapse_model.py
+```
+- **Augmentation** re-renders each recording 3 times as if from a different webcam (lighting, colour, noise, blur, compression, low resolution, tilt/zoom, mirror) and re-extracts the features.
+- **SMOTE** creates synthetic lapse windows to balance the classes.
+- Both are used **for training only**. Scores are always on real recordings of people the model hasn't seen, and the trainer reports results with and without them, so you can show whether they helped.
+
+### Public dataset: DROZY
+14 people × up to 3 ten-minute PVTs (3,383 trials), filmed with a near-infrared camera.
+1. Download `DROZY.zip` (2.5 GB) from https://orbi.uliege.be/handle/2268/191620 and unzip it outside the repo.
+2. Convert it to our format:
+   ```bash
+   python drozy_convert.py --drozy path/to/DROZY --out drozy_converted --workers 4
+   python train_lapse_model.py --data drozy_converted                          # models on DROZY
+   python train_lapse_model.py --data drozy_converted --test-data recordings   # train on DROZY, test on ours
+   ```
+
+**License:** research use only. **Never commit DROZY or `drozy_converted/` to git**, don't show DROZY face images in slides, and cite: Massoz, Langohr, François & Verly, *The ULg Multimodality Drowsiness Database (called DROZY) and Examples of Use*, WACV 2016.
 
 Read the results against **chance**: PR-AUC is only meaningful compared with the lapse rate, which the script prints.
 
