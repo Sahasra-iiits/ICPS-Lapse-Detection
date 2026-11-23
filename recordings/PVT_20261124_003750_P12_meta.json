@@ -1,0 +1,28 @@
+{
+  "session_id": "PVT_20261124_003750_P12",
+  "participant": "P12",
+  "task": "PVT-B",
+  "start_time": "2026-11-24T00:42:52.101674",
+  "rest_s": 60,
+  "test_minutes": 3.0,
+  "lapse_threshold_ms": 355,
+  "false_start_ms": 100,
+  "probe_timeout_s": 10.0,
+  "kss_before": 6,
+  "kss_after": 5,
+  "frame_size": [
+    1280,
+    720
+  ],
+  "video_fps_header": 30.0,
+  "video_fps_actual": 29.05,
+  "face_detected_frac": 0.998,
+  "summary": {
+    "trials": 46,
+    "lapses": 7,
+    "false_starts": 1,
+    "mean_rt_ms": 310.5,
+    "median_rt_ms": 266.0,
+    "mean_speed_1_per_s": 3.485
+  }
+}
