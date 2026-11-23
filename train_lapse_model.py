@@ -12,7 +12,8 @@ used for TRAINING; test folds contain real sessions only.
 
 Outputs
   ablation_results.csv   feature groups added one at a time (logreg, gboost)
-  model_comparison.csv   5 models x {real, +augmentation, +SMOTE, +both}
+  model_comparison.csv   6 models x {all webcam features, compact physical set}
+                         x {real, +augmentation, +SMOTE, +both}
   lapse_model.joblib     best webcam-only model, trained on everything
 
 Cross-dataset (e.g. train on DROZY, test on your own recordings):
@@ -28,7 +29,8 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import (ExtraTreesClassifier, HistGradientBoostingClassifier,
+                              RandomForestClassifier)
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
@@ -66,6 +68,9 @@ def make_models():
         "random_forest": make_pipeline(SimpleImputer(strategy="median"), RandomForestClassifier(
             n_estimators=300, min_samples_leaf=5, max_features="sqrt",
             class_weight="balanced_subsample", n_jobs=-1, random_state=0)),
+        "extra_trees": make_pipeline(SimpleImputer(strategy="median"), ExtraTreesClassifier(
+            n_estimators=400, min_samples_leaf=20, class_weight="balanced_subsample",
+            n_jobs=-1, random_state=0)),
         "gboost": HistGradientBoostingClassifier(
             max_depth=3, learning_rate=0.05, max_iter=200, min_samples_leaf=10,
             l2_regularization=1.0, class_weight="balanced", random_state=0),
@@ -250,28 +255,36 @@ def main():
         res.to_csv("ablation_results.csv", index=False)
 
     # ---------------- model comparison ----------------
-    cols = select(feats, WEBCAM)
-    X = Xall[cols]
+    # "physical" = compact eye-closure set (best on DROZY, see diagnose_dataset.py)
+    phys = [c for c in lf.PHYSICAL_FEATURES if c in feats]
+    feature_sets = {"webcam (all)": select(feats, WEBCAM), "physical (compact)": phys}
     configs = [("real only", False, False), ("+SMOTE", False, True)]
     if (~real).any():
         configs += [("+augmentation", True, False), ("+augmentation +SMOTE", True, True)]
     rows = []
     if not args.no_compare:
-        for cname, use_aug, use_smote in configs:
-            for mname, model in models.items():
-                r = evaluate(model, X, y, groups, aug, cv, use_aug, use_smote)
-                if r:
-                    rows.append(dict(training_data=cname, model=mname, **r))
-                    print(f"  {cname:22s} {mname:14s} PR-AUC {r['pr_auc']:.3f}  ROC-AUC {r['roc_auc']:.3f}")
+        for fname, fcols in feature_sets.items():
+            if not fcols:
+                continue
+            for cname, use_aug, use_smote in configs:
+                for mname, model in models.items():
+                    r = evaluate(model, Xall[fcols], y, groups, aug, cv, use_aug, use_smote)
+                    if r:
+                        rows.append(dict(features=fname, training_data=cname, model=mname, **r))
+                        print(f"  {fname:18s} {cname:22s} {mname:14s} "
+                              f"PR-AUC {r['pr_auc']:.3f}  ROC-AUC {r['roc_auc']:.3f}")
         comp = pd.DataFrame(rows)
-        print(f"\n=== Model comparison: webcam features ({len(cols)}), unseen {group_name}s ===")
+        print(f"\n=== Model comparison, unseen {group_name}s ===")
         print(comp.round(3).to_string(index=False))
         comp.to_csv("model_comparison.csv", index=False)
         best = comp.sort_values("pr_auc", ascending=False).iloc[0]
         cfg = {c[0]: c[1:] for c in configs}[best.training_data]
         mname = best.model
+        cols = feature_sets[best.features]
     else:
         cfg, mname, best = (False, False), "logreg", None
+        cols = feature_sets["webcam (all)"]
+    X = Xall[cols]
 
     # ---------------- final model ----------------
     use_aug, use_smote = cfg
@@ -286,7 +299,8 @@ def main():
     top = pd.Series(imp.importances_mean, index=cols).sort_values(ascending=False)
     print("Top features (permutation importance on real training data, indicative only):")
     print(top.head(12).round(4).to_string())
-    joblib.dump({"model": final, "model_name": mname, "feature_set": "webcam",
+    joblib.dump({"model": final, "model_name": mname,
+                 "feature_set": best.features if best is not None else "webcam (all)",
                  "features": cols, "threshold": thr, "window_s": args.window,
                  "use_augmentation": use_aug, "use_smote": use_smote,
                  "cv": None if best is None else best.to_dict()}, args.out)

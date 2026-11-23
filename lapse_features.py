@@ -85,6 +85,14 @@ RPPG_MIN_SNR = -3.0      # dB; rPPG estimates below this are ignored
 AUDIO_HOP_MS = 50
 
 
+# Compact set of physically meaningful eye/face features (durations in ms,
+# fractions). On DROZY these beat the full feature set: closure DURATIONS mean
+# the same for everyone, while raw EAR levels depend on each person's eye shape.
+PHYSICAL_FEATURES = [
+    "max_closure_ms", "long_closures", "blink_dur_mean", "blink_dur_max", "perclos",
+    "closure_mean", "bs_blink_mean", "perclos_bs", "expr_motion_mean", "head_speed_mean",
+]
+
 # Group of every feature (filled while features are computed)
 FEATURE_GROUP = {}
 
@@ -549,5 +557,27 @@ def base_name(col):
     return col[:-2] if col.endswith("_z") else col
 
 
+def _register_groups():
+    """Fill FEATURE_GROUP by computing features once on a dummy session
+    (needed when a saved dataset CSV is loaded without build_dataset)."""
+    n = 400
+    rng = np.random.default_rng(0)
+    t = np.arange(n) * 33
+    fr = pd.DataFrame({
+        "timestamp_ms": t, "face_present": 1, "ear": 0.3 + 0.01 * rng.standard_normal(n),
+        "gaze_h": rng.random(n), "gaze_v": rng.random(n), "yaw": rng.random(n),
+        "pitch": rng.random(n), "roll": rng.random(n), "head_x": rng.random(n),
+        "head_y": rng.random(n), "heart_rate": 70.0, "spo2": 98.0, "expr_motion": rng.random(n),
+        **{c: rng.random(n) for c in ("bs_blink", "bs_squint", "bs_wide", "bs_look_down",
+                                       "bs_look_up", "bs_brow_down", "bs_brow_inner_up",
+                                       "bs_jaw_open", "bs_look_h")}})
+    fr = add_session_signals(fr, pd.DataFrame(columns=["timestamp_ms", "event_type", "rt_ms"]), 3000)
+    audio = pd.DataFrame({"t_ms": t, "rms": rng.random(n)})
+    rp = pd.DataFrame({"t_ms": t[::30], "hr_rppg": 70.0, "rppg_snr": 1.0})
+    window_features(fr, audio, t[-1], 10000, 0.1, rp)
+
+
 def group_of(col):
+    if not FEATURE_GROUP:
+        _register_groups()
     return FEATURE_GROUP.get(base_name(col), "other")
