@@ -1,66 +1,142 @@
-// Runs inside Google Meet: shows alert banners, plays sounds, shows the breathing guide.
+// Runs inside Google Meet: alert banners, sounds, breathing guide, demo shortcuts.
 (() => {
   if (window.__icpsFocusAlerts) return;
   window.__icpsFocusAlerts = true;
 
-  const STYLE = {
-    dozing: { color: "#d93025", icon: "😴", beep: [[1200, .15], [0, .05], [1200, .15], [0, .05], [1200, .15], [0, .05], [1200, .15]] },
-    drowsy: { color: "#e8710a", icon: "🥱", beep: [[900, .2], [0, .1], [900, .2]] },
-    zoning: { color: "#1a73e8", icon: "💭", beep: [[660, .25]] },
-    stress: { color: "#9334e6", icon: "🫁", beep: [[440, .4]] },
+  // ---------- alert styles (cherry-red family) ----------
+  const ICONS = {
+    dozing: '<path d="M3 11c2.6 3.2 5.6 4.8 9 4.8s6.4-1.6 9-4.8"/><path d="M6.2 14.6 4.8 16.8M12 15.8v2.6M17.8 14.6l1.4 2.2"/><path d="M15.5 4.5h3l-3 3.5h3"/>',
+    drowsy: '<path d="M2.5 12s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6z"/><path d="M3.6 10.6C6.4 9 9.2 8.2 12 8.2s5.6.8 8.4 2.4"/><path d="M9.4 12.4a2.6 2.6 0 0 0 5.2 0"/>',
+    zoning: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/><path d="M14.8 9.2 19.5 4.5" stroke-dasharray="1.6 2.2"/><circle cx="20" cy="4" r="1.2" fill="currentColor"/>',
+    stress: '<path d="M12 20s-7-4.4-9-8.6C1.7 8.4 3.6 5 7 5c2 0 3.3 1.1 5 3 1.7-1.9 3-3 5-3 3.4 0 5.3 3.4 4 6.4-2 4.2-9 8.6-9 8.6z"/><path d="M5.5 12h3l1.5-2.6 2.6 5.2 1.6-2.6h4.3"/>',
+  };
+  const KIND = {
+    dozing: { eyebrow: "Focus alert", grad: "linear-gradient(120deg,#4a000e 0%,#8f0018 45%,#d2042d 100%)", ms: 8000, pulse: true,
+              beep: [[1200, .15], [0, .05], [1200, .15], [0, .05], [1200, .15], [0, .05], [1200, .15]] },
+    drowsy: { eyebrow: "Focus alert", grad: "linear-gradient(120deg,#5e0014 0%,#a3001c 50%,#e0243f 100%)", ms: 7000,
+              beep: [[900, .2], [0, .1], [900, .2]] },
+    zoning: { eyebrow: "Focus check", grad: "linear-gradient(120deg,#6b0f1f 0%,#b51b36 50%,#ea4c64 100%)", ms: 6000,
+              beep: [[660, .25]] },
+    stress: { eyebrow: "Wellbeing", grad: "linear-gradient(120deg,#5a0b1e 0%,#a51d47 50%,#e4587d 100%)", ms: 7000,
+              beep: [[440, .4]] },
+  };
+  const DEMO = {
+    dozing: { title: "WAKE UP!", msg: "Your eyes were closed for 2.1 seconds." },
+    drowsy: { title: "You're getting drowsy", msg: "Your eyes were closed 18% of the last minute." },
+    zoning: { title: "Zoning out?", msg: "Your attention seems to have drifted. Refocus on the call." },
+    stress: { title: "Take a deep breath", msg: "Your heart rate is high (112 bpm). Follow the breathing guide." },
   };
   const BREATH_IN = 4, BREATH_OUT = 6, BREATH_CYCLES = 6;
 
-  // ---------- UI in a shadow root so Meet's styles don't interfere ----------
+  // ---------- UI (shadow root, so Meet's styles don't interfere) ----------
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647;";
   document.documentElement.appendChild(host);
   const root = host.attachShadow({ mode: "open" });
   root.innerHTML = `
-    <style>
-      * { box-sizing: border-box; font-family: "Google Sans", Roboto, Arial, sans-serif; }
-      .banner { position: fixed; top: 16px; left: 50%; transform: translate(-50%, -150%);
-        min-width: 320px; max-width: 90vw; padding: 14px 18px 14px 16px; border-radius: 12px; color: #fff;
-        box-shadow: 0 6px 24px rgba(0,0,0,.35); display: flex; gap: 12px; align-items: center;
-        transition: transform .35s ease; pointer-events: auto; }
-      .banner.show { transform: translate(-50%, 0); }
-      .banner .icon { font-size: 30px; line-height: 1; }
-      .banner .title { font-size: 18px; font-weight: 700; }
-      .banner .msg { font-size: 14px; opacity: .95; margin-top: 2px; }
-      .banner .x { margin-left: auto; background: transparent; border: 0; color: #fff; font-size: 20px; cursor: pointer; }
-      .pill { position: fixed; left: 16px; bottom: 96px; padding: 6px 12px; border-radius: 999px;
-        background: rgba(32,33,36,.85); color: #fff; font-size: 12px; display: flex; gap: 8px; align-items: center; }
-      .dot { width: 8px; height: 8px; border-radius: 50%; background: #9aa0a6; }
-      .breath { position: fixed; right: 24px; bottom: 110px; width: 200px; height: 230px; border-radius: 16px;
-        background: rgba(32,33,36,.9); color: #fff; display: none; flex-direction: column; align-items: center;
-        justify-content: center; gap: 12px; pointer-events: auto; }
-      .breath.show { display: flex; }
-      .ring { width: 140px; height: 140px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5);
-        display: flex; align-items: center; justify-content: center; }
-      .ball { width: 40px; height: 40px; border-radius: 50%; background: #9334e6; transition: width 1s linear, height 1s linear; }
-      .breath .label { font-size: 16px; font-weight: 600; }
-      .breath .x { position: absolute; top: 6px; right: 10px; background: transparent; border: 0; color: #fff; font-size: 18px; cursor: pointer; }
-    </style>
-    <div class="banner" id="banner"><div class="icon" id="bicon"></div>
-      <div><div class="title" id="btitle"></div><div class="msg" id="bmsg"></div></div>
-      <button class="x" id="bclose" title="Dismiss">✕</button></div>
-    <div class="pill" id="pill"><span class="dot" id="dot"></span><span id="ptext">Focus alerts: starting…</span></div>
-    <div class="breath" id="breath"><button class="x" id="brclose" title="Close">✕</button>
-      <div class="ring"><div class="ball" id="ball"></div></div><div class="label" id="blabel">Breathe in</div></div>`;
-  const $ = (id) => root.getElementById(id);
-  let bannerTimer = null;
+  <style>
+    * { box-sizing: border-box; margin: 0; font-family: "Google Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .wrap { position: fixed; top: 18px; left: 50%; width: min(560px, 92vw); transform: translate(-50%, -140%);
+      opacity: 0; transition: transform .45s cubic-bezier(.2,.9,.25,1.15), opacity .3s ease; pointer-events: auto; }
+    .wrap.show { transform: translate(-50%, 0); opacity: 1; }
+    .card { position: relative; overflow: hidden; display: flex; align-items: center; gap: 16px;
+      padding: 16px 18px 18px 16px; border-radius: 18px; color: #fff;
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: 0 22px 48px rgba(110,0,22,.45), 0 4px 12px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.28); }
+    .card::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 55%); }
+    .card.pulse { animation: glow 1.4s ease-in-out infinite; }
+    @keyframes glow { 0%,100% { box-shadow: 0 22px 48px rgba(110,0,22,.45), 0 0 0 0 rgba(210,4,45,.55), inset 0 1px 0 rgba(255,255,255,.28); }
+                      50% { box-shadow: 0 22px 48px rgba(110,0,22,.45), 0 0 0 10px rgba(210,4,45,0), inset 0 1px 0 rgba(255,255,255,.28); } }
+    .badge { flex: none; width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center;
+      background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.22); }
+    .badge svg { width: 28px; height: 28px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .text { min-width: 0; flex: 1; }
+    .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .12em;
+      text-transform: uppercase; color: rgba(255,255,255,.78); font-weight: 600; }
+    .chip { font-size: 10px; letter-spacing: .08em; padding: 1px 7px; border-radius: 999px;
+      background: rgba(255,255,255,.22); color: #fff; }
+    .title { font-size: 19px; font-weight: 700; margin-top: 3px; letter-spacing: -.01em; }
+    .msg { font-size: 14px; margin-top: 3px; color: rgba(255,255,255,.92); line-height: 1.35; }
+    .close { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 0; cursor: pointer;
+      background: rgba(255,255,255,.14); display: grid; place-items: center; transition: background .2s; }
+    .close:hover { background: rgba(255,255,255,.28); }
+    .close svg { width: 14px; height: 14px; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; }
+    .bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: rgba(255,255,255,.75);
+      transform-origin: left; }
+    .wrap:hover .bar { animation-play-state: paused; }
+    @keyframes shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
+    .pill { position: fixed; left: 16px; bottom: 96px; display: flex; align-items: center; gap: 9px;
+      padding: 7px 14px 7px 10px; border-radius: 999px; font-size: 12px; color: #fff;
+      background: rgba(26,8,12,.82); border: 1px solid rgba(210,4,45,.45);
+      box-shadow: 0 6px 18px rgba(0,0,0,.3); backdrop-filter: blur(6px); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #8a8a8a; }
+    .dot.live { background: #ff4d6d; box-shadow: 0 0 0 0 rgba(255,77,109,.7); animation: live 2s infinite; }
+    @keyframes live { 0% { box-shadow: 0 0 0 0 rgba(255,77,109,.6); } 70% { box-shadow: 0 0 0 7px rgba(255,77,109,0); } 100% { box-shadow: 0 0 0 0 rgba(255,77,109,0); } }
+
+    .breath { position: fixed; right: 24px; bottom: 110px; width: 220px; padding: 18px 16px 16px; border-radius: 20px;
+      color: #fff; text-align: center; pointer-events: auto; display: none;
+      background: linear-gradient(160deg, rgba(58,6,16,.95), rgba(26,4,9,.95));
+      border: 1px solid rgba(255,77,109,.35); box-shadow: 0 20px 44px rgba(90,0,20,.5); }
+    .breath.show { display: block; animation: fadein .4s ease; }
+    @keyframes fadein { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .breath .head { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.7); font-weight: 600; }
+    .ring { width: 150px; height: 150px; margin: 14px auto 12px; border-radius: 50%; display: grid; place-items: center;
+      border: 1.5px solid rgba(255,255,255,.22); }
+    .ball { width: 46px; height: 46px; border-radius: 50%; transition: width .25s linear, height .25s linear;
+      background: radial-gradient(circle at 35% 30%, #ff8fa3, #d2042d 60%, #8f0018);
+      box-shadow: 0 0 28px rgba(255,77,109,.55); }
+    .breath .label { font-size: 17px; font-weight: 700; }
+    .breath .sub { font-size: 12px; color: rgba(255,255,255,.65); margin-top: 3px; }
+    .breath .close { position: absolute; top: 10px; right: 10px; width: 26px; height: 26px; }
+  </style>
+  <div class="wrap" id="wrap">
+    <div class="card" id="card">
+      <div class="badge"><svg viewBox="0 0 24 24" id="icon"></svg></div>
+      <div class="text">
+        <div class="eyebrow"><span id="eyebrow"></span><span class="chip" id="chip">Demo</span></div>
+        <div class="title" id="title"></div>
+        <div class="msg" id="msg"></div>
+      </div>
+      <button class="close" id="close" title="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <div class="bar" id="bar"></div>
+    </div>
+  </div>
+  <div class="pill" id="pill"><span class="dot" id="dot"></span><span id="ptext">Focus alerts: starting</span></div>
+  <div class="breath" id="breath">
+    <button class="close" id="bclose" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <div class="head">Breathing guide</div>
+    <div class="ring"><div class="ball" id="ball"></div></div>
+    <div class="label" id="blabel">Breathe in</div>
+    <div class="sub" id="bsub">Cycle 1 of ${BREATH_CYCLES}</div>
+  </div>`;
+  const $ = (id) => root.getElementById(id);
+
+  // ---------- banner ----------
+  let hideTimer = null;
   function showBanner(a) {
-    const st = STYLE[a.kind] || STYLE.zoning;
-    $("banner").style.background = st.color;
-    $("bicon").textContent = st.icon;
-    $("btitle").textContent = a.title;
-    $("bmsg").textContent = a.msg;
-    $("banner").classList.add("show");
-    clearTimeout(bannerTimer);
-    bannerTimer = setTimeout(() => $("banner").classList.remove("show"), a.kind === "dozing" ? 8000 : 6000);
+    const k = KIND[a.kind] || KIND.zoning;
+    const card = $("card");
+    card.style.background = k.grad;
+    card.classList.toggle("pulse", !!k.pulse);
+    $("icon").innerHTML = ICONS[a.kind] || ICONS.zoning;
+    $("eyebrow").textContent = k.eyebrow;
+    $("chip").style.display = a.demo ? "inline-block" : "none";
+    $("title").textContent = a.title;
+    $("msg").textContent = a.msg;
+    const bar = $("bar");
+    bar.style.animation = "none";
+    void bar.offsetWidth;                       // restart the countdown bar
+    bar.style.animation = `shrink ${k.ms}ms linear forwards`;
+    $("wrap").classList.add("show");
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideBanner, k.ms);
   }
-  $("bclose").onclick = () => $("banner").classList.remove("show");
+  function hideBanner() { $("wrap").classList.remove("show"); }
+  $("close").onclick = hideBanner;
+  $("wrap").addEventListener("mouseenter", () => clearTimeout(hideTimer));
+  $("wrap").addEventListener("mouseleave", () => { hideTimer = setTimeout(hideBanner, 1500); });
 
   // ---------- sound (Web Audio; unlocked by your first click in Meet) ----------
   let ctx = null;
@@ -74,9 +150,10 @@
       for (const [f, d] of pattern) {
         if (f > 0) {
           const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = "sine";
           o.frequency.value = f;
           g.gain.setValueAtTime(0.0001, t);
-          g.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
           g.gain.exponentialRampToValueAtTime(0.0001, t + d);
           o.connect(g).connect(ctx.destination);
           o.start(t); o.stop(t + d + 0.02);
@@ -86,7 +163,7 @@
     } catch (e) {}
   }
 
-  // ---------- breathing guide (4 s in, 6 s out, 6 cycles) ----------
+  // ---------- breathing guide (4 s in, 6 s out) ----------
   let breathTimer = null;
   function startBreathing() {
     clearInterval(breathTimer);
@@ -97,53 +174,91 @@
       if (el > cyc * BREATH_CYCLES) return stopBreathing();
       const ph = el % cyc, inhale = ph < BREATH_IN;
       const frac = inhale ? ph / BREATH_IN : 1 - (ph - BREATH_IN) / BREATH_OUT;
-      const size = Math.round(40 + 90 * frac);
+      const size = Math.round(46 + 92 * frac);
       $("ball").style.width = $("ball").style.height = size + "px";
-      $("blabel").textContent = inhale ? "Breathe in…" : "Breathe out…";
+      $("blabel").textContent = inhale ? "Breathe in" : "Breathe out";
+      $("bsub").textContent = `Cycle ${Math.min(BREATH_CYCLES, Math.floor(el / cyc) + 1)} of ${BREATH_CYCLES}`;
     };
     tick();
-    breathTimer = setInterval(tick, 250);
+    breathTimer = setInterval(tick, 200);
   }
   function stopBreathing() { clearInterval(breathTimer); $("breath").classList.remove("show"); }
-  $("brclose").onclick = stopBreathing;
+  $("bclose").onclick = stopBreathing;
 
-  // ---------- polling the local helper (through the extension's background) ----------
-  let lastSeen = null;
+  function present(a, settings) {
+    if (settings && settings.enabled && settings.enabled[a.kind] === false && !a.demo) return;
+    showBanner(a);
+    if (!(settings && settings.muted)) beep((KIND[a.kind] || KIND.zoning).beep);
+    if (a.kind === "stress") startBreathing();
+  }
+
+  // ---------- status pill ----------
+  let lastState = null;
   function pill(state) {
     const s = state.settings || {};
     $("pill").style.display = s.showPill === false ? "none" : "flex";
-    let color = "#9aa0a6", text;
-    if (state.offline || !state.running) text = "Focus alerts: helper not running (python live_monitor.py --meet)";
-    else if (state.calibrating) { color = "#f9ab00"; text = `Focus alerts: calibrating… ${state.calib_left_s ?? ""} s — look at the screen, blink normally`; }
-    else if (!state.face) { color = "#f9ab00"; text = "Focus alerts: face not visible"; }
-    else {
-      color = "#1e8e3e";
-      text = "Focus alerts: on" + (state.hr ? ` · HR ${Math.round(state.hr)}${state.sim_hr ? " (sim)" : ""}` : "") +
-        (state.perclos != null ? ` · eyes closed ${Math.round(state.perclos * 100)}%` : "");
+    const dot = $("dot");
+    dot.className = "dot";
+    let text;
+    if (state.offline || !state.running) {
+      text = "Focus alerts: helper not running";
+    } else if (state.calibrating) {
+      dot.style.background = "#ffb4a2";
+      text = `Calibrating${state.calib_left_s != null ? ` (${state.calib_left_s} s)` : ""}: look at the screen, blink normally`;
+    } else if (!state.face) {
+      dot.style.background = "#ffb4a2";
+      text = "Focus alerts: face not visible";
+    } else {
+      dot.style.background = "";
+      dot.classList.add("live");
+      text = "Focus alerts on" + (state.hr ? `  ·  HR ${Math.round(state.hr)}${state.sim_hr ? " (sim)" : ""}` : "") +
+        (state.perclos != null ? `  ·  eyes closed ${Math.round(state.perclos * 100)}%` : "");
     }
-    if (s.muted) text += " · muted";
-    $("dot").style.background = color;
+    if (s.muted) text += "  ·  muted";
     $("ptext").textContent = text;
   }
 
+  // ---------- polling the local helper (via the extension background) ----------
+  let lastSeen = null;
   async function poll() {
     let state;
     try { state = await chrome.runtime.sendMessage({ type: "poll" }); }
-    catch (e) { return; }               // extension reloaded: stop quietly
+    catch (e) { return; }                       // extension was reloaded
     if (!state) return;
+    lastState = state;
     pill(state);
     if (state.offline || !state.alerts) return;
-    const s = state.settings;
     if (lastSeen === null) { lastSeen = state.alerts.length ? state.alerts[state.alerts.length - 1].id : 0; return; }
     for (const a of state.alerts) {
       if (a.id <= lastSeen) continue;
       lastSeen = a.id;
-      if (!s.enabled[a.kind]) continue;
-      showBanner(a);
-      if (!s.muted) beep((STYLE[a.kind] || STYLE.zoning).beep);
-      if (a.kind === "stress") startBreathing();
+      present(a, state.settings);
     }
   }
   setInterval(poll, 700);
   poll();
+
+  // ---------- demo: through the helper if it runs, otherwise a local preview ----------
+  async function demo(kind) {
+    let r = null;
+    try { r = await chrome.runtime.sendMessage({ type: "test", kind }); } catch (e) {}
+    if (!r || r.offline) present({ kind, ...DEMO[kind], demo: true }, lastState && lastState.settings);
+  }
+  let demoTimers = [];
+  function demoAll() {
+    demoTimers.forEach(clearTimeout);
+    demoTimers = ["dozing", "drowsy", "zoning", "stress"].map((k, i) => setTimeout(() => demo(k), i * 9000));
+  }
+  chrome.runtime.onMessage.addListener((msg, _s, reply) => {
+    if (msg.type === "demo") demo(msg.kind);
+    if (msg.type === "demo-all") demoAll();
+    reply({ ok: true });
+  });
+  // Alt+Shift+1..4 = one alert, Alt+Shift+D = full demo
+  window.addEventListener("keydown", (e) => {
+    if (!e.altKey || !e.shiftKey) return;
+    const map = { Digit1: "dozing", Digit2: "drowsy", Digit3: "zoning", Digit4: "stress" };
+    if (map[e.code]) { e.preventDefault(); demo(map[e.code]); }
+    else if (e.code === "KeyD") { e.preventDefault(); demoAll(); }
+  }, true);
 })();

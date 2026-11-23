@@ -87,6 +87,13 @@ STYLE = {   # BGR colour, title, beep pattern [(Hz, seconds)]
     "stress": ((200, 90, 255), "Take a deep breath", [(440, .4)]),
 }
 BREATH_IN, BREATH_OUT, BREATH_CYCLES = 4.0, 6.0, 6
+# what the extension's demo / preview buttons show (marked "Demo" in the banner)
+DEMO_MSG = {
+    "dozing": "Your eyes were closed for 2.1 seconds.",
+    "drowsy": "Your eyes were closed 18% of the last minute.",
+    "zoning": "Your attention seems to have drifted. Refocus on the call.",
+    "stress": "Your heart rate is high (112 bpm). Follow the breathing guide.",
+}
 
 
 # ============================================================
@@ -269,10 +276,11 @@ class Status:
         with self.lock:
             self.data.update(kw)
 
-    def alert(self, kind, msg, t):
+    def alert(self, kind, msg, t, demo=False):
         with self.lock:
             self.data["alerts"] = (self.data["alerts"] + [{
-                "id": self.next_id, "kind": kind, "title": STYLE[kind][1], "msg": msg, "t": round(t, 1)}])[-20:]
+                "id": self.next_id, "kind": kind, "title": STYLE[kind][1], "msg": msg,
+                "t": round(t, 1), "demo": demo}])[-20:]
             self.next_id += 1
 
     def snapshot(self):
@@ -484,7 +492,7 @@ def main():
                     sim_hr, req["sim_hr"] = req["sim_hr"], None
                 tests, req["test"] = req["test"], []
             for kind in tests:
-                alerts.append((kind, "Test alert from the extension popup"))
+                status.alert(kind, DEMO_MSG[kind], t, demo=True)
 
         # ---------- every TICK_S: HR, zoning model, PERCLOS ----------
         if t >= next_tick:
@@ -560,6 +568,8 @@ def main():
         if status is not None:
             status.update(face=bool(f["face_present"]))
         for kind, msg in alerts:
+            if kind == "stress" and sim_hr:
+                msg += " (simulated)"
             notifier.alert(t, kind, msg)
             if status is not None:
                 status.alert(kind, msg, t)

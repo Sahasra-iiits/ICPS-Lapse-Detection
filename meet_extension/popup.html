@@ -1,39 +1,76 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><style>
-  body { width: 300px; margin: 0; padding: 14px; font: 13px/1.4 Roboto, Arial, sans-serif; color: #202124; }
-  h1 { font-size: 15px; margin: 0 0 8px; }
-  .status { padding: 8px 10px; border-radius: 8px; background: #f1f3f4; margin-bottom: 10px; }
-  .status b { display: block; margin-bottom: 2px; }
-  fieldset { border: 1px solid #dadce0; border-radius: 8px; margin: 0 0 10px; padding: 6px 10px 8px; }
-  legend { font-weight: 600; padding: 0 4px; }
-  label { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
-  select { margin-left: auto; }
-  .row { display: flex; flex-wrap: wrap; gap: 6px; }
-  button { border: 1px solid #dadce0; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
-  button:hover { background: #f1f3f4; }
-  .hint { color: #5f6368; font-size: 11px; margin-top: 6px; }
+  :root { --cherry: #b3001b; --cherry-dark: #6e0014; --cherry-soft: #fde8eb; --ink: #241417; --muted: #7a6266; --line: #f1d6db; }
+  * { box-sizing: border-box; }
+  body { width: 330px; margin: 0; font: 13px/1.4 "Google Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: #fff; }
+  header { padding: 16px 16px 14px; color: #fff; background: linear-gradient(120deg, #4a000e 0%, #8f0018 45%, #d2042d 100%); position: relative; overflow: hidden; }
+  header::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.22), rgba(255,255,255,0) 55%); }
+  header h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+  header p { margin: 2px 0 0; font-size: 12px; opacity: .8; }
+  main { padding: 12px 14px 14px; }
+  .status { border: 1px solid var(--line); background: var(--cherry-soft); border-radius: 12px; padding: 10px 12px; }
+  .status .head { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #a9a9a9; }
+  .dot.live { background: #d2042d; box-shadow: 0 0 0 3px rgba(210,4,45,.18); }
+  .dot.cal { background: #f28b82; }
+  .grid { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; color: var(--muted); }
+  .grid b { color: var(--ink); font-weight: 600; text-align: right; }
+  h2 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 2px 6px; font-weight: 700; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 7px 2px; border-bottom: 1px solid #f6e9eb; }
+  .row:last-child { border-bottom: 0; }
+  .row small { display: block; color: var(--muted); font-size: 11px; }
+  .switch { position: relative; width: 34px; height: 20px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; border-radius: 999px; background: #d9c9cc; transition: .2s; cursor: pointer; }
+  .slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px; border-radius: 50%; background: #fff; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+  .switch input:checked + .slider { background: var(--cherry); }
+  .switch input:checked + .slider::before { transform: translateX(14px); }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; background: #fff; padding: 5px 10px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .seg button.on { background: var(--cherry); color: #fff; }
+  .primary { width: 100%; border: 0; border-radius: 10px; padding: 10px; font: inherit; font-weight: 700; color: #fff; cursor: pointer;
+    background: linear-gradient(120deg, #8f0018, #d2042d); box-shadow: 0 6px 16px rgba(179,0,27,.3); }
+  .primary:hover { filter: brightness(1.08); }
+  .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .chips button { border: 1px solid var(--line); background: #fff; color: var(--cherry-dark); border-radius: 9px; padding: 7px 8px; font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
+  .chips button:hover { background: var(--cherry-soft); }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; }
+  code { font: 11px ui-monospace, Menlo, monospace; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+  .note { color: #a3001c; font-size: 11px; margin-top: 6px; min-height: 14px; }
+  footer { padding: 8px 14px 12px; color: var(--muted); font-size: 11px; border-top: 1px solid #f6e9eb; }
 </style></head>
 <body>
-  <h1>ICPS Focus Alerts</h1>
-  <div class="status" id="status"><b>Connecting…</b></div>
-  <fieldset><legend>Alerts</legend>
-    <label><input type="checkbox" data-alert="dozing"> 😴 Dozing off (eyes closed / head drop)</label>
-    <label><input type="checkbox" data-alert="drowsy"> 🥱 Drowsy (eyes closing often)</label>
-    <label><input type="checkbox" data-alert="zoning"> 💭 Zoning out</label>
-    <label><input type="checkbox" data-alert="stress"> 🫁 High heart rate → breathing</label>
-  </fieldset>
-  <fieldset><legend>Settings</legend>
-    <label>Sensitivity <select id="sens"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
-    <label><input type="checkbox" id="muted"> Mute sounds</label>
-    <label><input type="checkbox" id="pill"> Show status in Meet</label>
-  </fieldset>
-  <fieldset><legend>Demo / test</legend>
-    <div class="row">
-      <button data-test="dozing">Test 😴</button><button data-test="drowsy">Test 🥱</button>
-      <button data-test="zoning">Test 💭</button><button data-test="stress">Test 🫁</button>
+  <header><h1>ICPS Focus Alerts</h1><p>Attention and wellbeing alerts for Google Meet</p></header>
+  <main>
+    <div class="status">
+      <div class="head"><span class="dot" id="dot"></span><span id="headline">Connecting</span></div>
+      <div class="grid" id="grid"></div>
     </div>
-    <label style="margin-top:8px"><input type="checkbox" id="sim"> Simulate high heart rate (+35 bpm)</label>
-    <div class="hint">Everything runs on this computer. Start the helper with<br><code>python live_monitor.py --meet</code></div>
-  </fieldset>
+
+    <h2>Alerts</h2>
+    <div class="row"><div>Dozing off<small>Eyes closed or head dropping</small></div><label class="switch"><input type="checkbox" data-alert="dozing"><span class="slider"></span></label></div>
+    <div class="row"><div>Drowsiness<small>Eyes closing often (PERCLOS)</small></div><label class="switch"><input type="checkbox" data-alert="drowsy"><span class="slider"></span></label></div>
+    <div class="row"><div>Zoning out<small>Attention model</small></div><label class="switch"><input type="checkbox" data-alert="zoning"><span class="slider"></span></label></div>
+    <div class="row"><div>High heart rate<small>Breathing guide</small></div><label class="switch"><input type="checkbox" data-alert="stress"><span class="slider"></span></label></div>
+
+    <h2>Settings</h2>
+    <div class="row"><div>Sensitivity</div><div class="seg" id="sens"><button data-v="low">Low</button><button data-v="normal">Normal</button><button data-v="high">High</button></div></div>
+    <div class="row"><div>Sound</div><label class="switch"><input type="checkbox" id="sound"><span class="slider"></span></label></div>
+    <div class="row"><div>Status bar in Meet</div><label class="switch"><input type="checkbox" id="pill"><span class="slider"></span></label></div>
+
+    <h2>Demo</h2>
+    <button class="primary" id="demoAll">Run full demo</button>
+    <div class="chips">
+      <button data-demo="dozing">Preview: dozing off</button>
+      <button data-demo="drowsy">Preview: drowsiness</button>
+      <button data-demo="zoning">Preview: zoning out</button>
+      <button data-demo="stress">Preview: breathing</button>
+    </div>
+    <div class="row" style="margin-top:6px"><div>Simulate high heart rate<small>Adds 35 bpm (shown as "sim")</small></div><label class="switch"><input type="checkbox" id="sim"><span class="slider"></span></label></div>
+    <div class="note" id="note"></div>
+    <div class="hint">Shortcuts in Meet: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd>..<kbd>4</kbd> one alert, <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> full demo.</div>
+  </main>
+  <footer>Runs on this computer only. Helper: <code>python live_monitor.py --meet</code></footer>
   <script src="popup.js"></script>
 </body></html>
