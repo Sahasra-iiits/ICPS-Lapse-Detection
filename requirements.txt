@@ -1,0 +1,10 @@
+opencv-python
+mediapipe
+pyserial
+numpy
+pandas
+mysql-connector-python
+sounddevice
+pynput
+scikit-learn
+joblib
