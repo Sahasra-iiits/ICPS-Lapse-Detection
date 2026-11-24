@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Focus Alerts · Camera access</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --cherry: #b3001b; --cherry-dark: #6e0014; --cherry-soft: #fdecef; --ink: #241417; --muted: #7a6266; --line: #f1d6db; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: #fff7f8;
+    font: 15px/1.5 "Google Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); }
+  .card { width: min(460px, 100%); background: #fff; border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
+    box-shadow: 0 18px 40px rgba(110,0,22,.12); }
+  header { display: flex; gap: 12px; align-items: center; padding: 18px 20px; color: #fff;
+    background: linear-gradient(120deg, #4a000e 0%, #8f0018 45%, #d2042d 100%); }
+  header img { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,.15); padding: 3px; }
+  h1 { margin: 0; font-size: 18px; }
+  main { padding: 18px 20px 20px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .state { margin-top: 14px; padding: 10px 12px; border-radius: 12px; background: var(--cherry-soft); border: 1px solid var(--line); font-weight: 600; }
+  .state.ok { background: #eaf7ee; border-color: #cde9d5; color: #1e6b3a; }
+  button { margin-top: 14px; border: 0; border-radius: 10px; padding: 9px 16px; font: inherit; font-weight: 600;
+    background: var(--cherry); color: #fff; cursor: pointer; }
+  ol { margin: 6px 0 0 20px; padding: 0; }
+  code { font: 13px ui-monospace, Menlo, monospace; background: var(--cherry-soft); padding: 1px 5px; border-radius: 4px; color: var(--cherry-dark); }
+</style></head>
+<body>
+  <div class="card">
+    <header><img src="icons/icon48.png" alt=""><h1>Allow camera for Focus Alerts</h1></header>
+    <main>
+      <p>Focus Alerts needs your camera to notice when your eyes close or your attention drifts.</p>
+      <p class="muted">The video is analysed inside Chrome on this computer. It is never uploaded or recorded.</p>
+      <div class="state" id="state">Click <b>Allow</b> in Chrome's camera prompt at the top of this window.</div>
+      <div id="denied" hidden>
+        <p style="margin-top:12px">The camera is blocked for Focus Alerts. To allow it:</p>
+        <ol class="muted">
+          <li>Click the camera icon (or the tune icon) at the left of the address bar.</li>
+          <li>Set <b>Camera</b> to <b>Allow</b>.</li>
+          <li>Click <b>Try again</b>.</li>
+        </ol>
+        <button id="retry">Try again</button>
+      </div>
+    </main>
+  </div>
+  <script src="camera.js"></script>
+</body></html>

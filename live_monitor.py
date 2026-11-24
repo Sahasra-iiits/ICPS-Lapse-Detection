@@ -71,6 +71,11 @@ PERCLOS_ALERT = 0.15
 ZONE_CONSEC = 2
 HR_ABS, HR_REL, HR_SUSTAIN_S = 100.0, 20.0, 15.0
 SIM_HR_OFFSET = 35.0
+# Webcam heart rate is only shown when it is trustworthy: the last LIVE_HR_N estimates
+# (one per tick) all have SNR >= LIVE_HR_MIN_SNR, agree within LIVE_HR_AGREE_BPM, and are
+# recent. A noisy trace (movement, auto-exposure, light flicker) otherwise gives a
+# spectral peak near the bottom of the band, i.e. bogus readings around 45-55 bpm.
+LIVE_HR_N, LIVE_HR_MIN_SNR, LIVE_HR_AGREE_BPM, LIVE_HR_MAX_AGE_S = 3, -1.0, 8.0, 8.0
 
 COOLDOWN = {"dozing": 10, "drowsy": 60, "zoning": 45, "stress": 120}
 # sensitivity presets (the extension's popup switches between them)
@@ -493,11 +498,15 @@ def main(argv=None, status=None, stop_event=None):
             bpm, snr = live_rppg(rgb_buf)
             if np.isfinite(bpm):
                 rppg_rows.append((t_ms, bpm, snr))
-            good = [b for _, b, s in list(rppg_rows)[-5:] if s >= lf.RPPG_MIN_SNR]
+            recent = list(rppg_rows)[-LIVE_HR_N:]
+            bpms = [b for _, b, _ in recent]
+            steady = (len(recent) == LIVE_HR_N and all(s >= LIVE_HR_MIN_SNR for _, _, s in recent)
+                      and t_ms - recent[0][0] <= LIVE_HR_MAX_AGE_S * 1000
+                      and max(bpms) - min(bpms) <= LIVE_HR_AGREE_BPM)
             if np.isfinite(hr_esp):
                 hr_now, hr_src = hr_esp, "ESP32"
-            elif good:
-                hr_now, hr_src = float(np.median(good)), "webcam"
+            elif steady:
+                hr_now, hr_src = float(np.median(bpms)), "webcam"
             else:
                 hr_now, hr_src = np.nan, "-"
             hr_used = hr_now + (SIM_HR_OFFSET if sim_hr else 0)

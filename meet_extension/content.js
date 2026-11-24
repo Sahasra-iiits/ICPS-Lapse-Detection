@@ -1,5 +1,5 @@
 // Runs inside Google Meet: the Focus Alerts switch, alert banners, sounds and
-// the breathing guide. All alerts come from the local detector.
+// the breathing guide. All alerts come from the in-browser detector (detector.js).
 (() => {
   if (window.__icpsFocusAlerts) return;
   window.__icpsFocusAlerts = true;
@@ -180,9 +180,8 @@
     const dot = $("dot"), sw = $("switch"), st = v.state;
     dot.className = "dot";
     sw.classList.toggle("on", !!v.on);
-    sw.disabled = !!(v.error && v.error.code === "not-installed" && !v.on);
     let text;
-    if (v.error && v.error.code === "not-installed" && !v.on) text = "One-time setup needed (see the extension menu)";
+    if (v.error && v.error.code === "camera-permission" && !v.on) text = "Allow camera access in the tab that opened, then it starts";
     else if (v.error && !v.on) text = "Couldn't start: " + (v.error.message || "unknown error");
     else if (!v.on) text = "Off";
     else if (!st || st.started === false) { dot.classList.add("warm"); text = "Starting camera…"; }

@@ -27,7 +27,8 @@
   .grid b { color: var(--ink); font-weight: 600; text-align: right; }
   .setup { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; display: none; }
   .setup b { display: block; margin-bottom: 4px; color: var(--cherry-dark); }
-  .setup ol { margin: 4px 0 0 18px; padding: 0; color: var(--muted); }
+  .setup .allow { display: block; margin-top: 8px; border: 0; border-radius: 9px; padding: 6px 12px; font: inherit; font-weight: 600;
+    background: var(--cherry); color: #fff; cursor: pointer; }
   code { font: 11px ui-monospace, Menlo, monospace; background: var(--cherry-soft); border-radius: 4px; padding: 1px 4px; color: var(--cherry-dark); }
   h2 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 2px 4px; font-weight: 700; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 2px; border-bottom: 1px solid #f6e9eb; }
@@ -57,12 +58,9 @@
       <div class="grid" id="grid"></div>
     </div>
     <div class="setup" id="setup">
-      <b>One-time setup</b>
-      Focus Alerts needs its local detector registered with Chrome:
-      <ol>
-        <li>In the project folder, double-click <code>install_helper.command</code> (Mac) or <code>install_helper.bat</code> (Windows).</li>
-        <li>Come back here and switch Focus Alerts on.</li>
-      </ol>
+      <b>Camera access needed</b>
+      Allow the camera once for Focus Alerts. The video stays on this computer.
+      <button class="allow" id="allow">Allow camera</button>
     </div>
 
     <h2>Alerts</h2>

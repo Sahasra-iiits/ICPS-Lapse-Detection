@@ -27,23 +27,22 @@ function render(v) {
   if (!v) return;
   current = v;
   const st = v.state, dot = $("#dot"), grid = $("#grid");
-  const notInstalled = v.error && v.error.code === "not-installed" && !v.on;
-  $("#setup").style.display = notInstalled ? "block" : "none";
+  const needCamera = v.error && v.error.code === "camera-permission" && !v.on;
+  $("#setup").style.display = needCamera ? "block" : "none";
   $("#power").classList.toggle("on", !!v.on);
-  $("#power").disabled = v.mode === "manual";
   dot.className = "dot";
   grid.innerHTML = "";
   let head, sub = "";
-  if (notInstalled) { head = "Setup needed"; sub = "Finish the one-time setup below."; }
+  if (needCamera) { head = "Camera access needed"; sub = "Allow the camera below, then it starts by itself."; }
   else if (v.error && !v.on) { head = "Couldn't start"; sub = v.error.message || ""; }
   else if (!v.on) { head = "Off"; sub = "Turn it on here or from the switch in Google Meet."; }
   else if (!st || st.started === false) { dot.classList.add("warm"); head = "Starting camera"; sub = "This takes a few seconds."; }
   else if (st.calibrating) { dot.classList.add("warm"); head = `Calibrating${st.calib_left_s != null ? ` · ${st.calib_left_s} s` : ""}`; sub = "Look at the screen and blink normally."; }
   else if (!st.face) { dot.classList.add("warm"); head = "Face not visible"; sub = "Make sure your face is in view of the camera."; }
-  else { dot.classList.add("live"); head = "Monitoring"; sub = v.mode === "manual" ? "Running from a terminal helper." : "Alerts appear in your Meet tab."; }
+  else { dot.classList.add("live"); head = "Monitoring"; sub = "Alerts appear in your Meet tab."; }
   if (v.on && st && st.started !== false && !st.calibrating) {
     const pct = (x) => (x == null ? "-" : Math.round(x * 100) + "%");
-    grid.innerHTML = `<span>Heart rate</span><b>${st.hr ? Math.round(st.hr) + " bpm" : "-"}</b>` +
+    grid.innerHTML = `<span>Heart rate</span><b title="Shown once the webcam signal is steady. Sit still in even light.">${st.hr ? Math.round(st.hr) + " bpm" : "measuring…"}</b>` +
       `<span>Eyes closed, last minute</span><b>${pct(st.perclos)}</b>` +
       `<span>Alerts this session</span><b>${st.alerts ? st.alerts.length : 0}</b>`;
   }
@@ -67,3 +66,4 @@ document.querySelectorAll("#sens button").forEach((b) => b.addEventListener("cli
 }));
 load().then(refresh);
 setInterval(refresh, 1000);
+$("#allow").addEventListener("click", () => chrome.runtime.sendMessage({ type: "open-camera" }));

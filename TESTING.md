@@ -153,10 +153,9 @@ Alert rules:
 ### Inside Google Meet (extension)
 See `meet_extension/README.md`:
 1. Load the extension in `chrome://extensions` (Developer mode → Load unpacked → `meet_extension`).
-2. Run `python live_monitor.py --meet`.
-3. Join a call and click once in the page.
+2. Join a call, click once in the page, and switch Focus Alerts on in the status bar. Allow the camera the first time.
 
-Use the popup's **Test** buttons and **Simulate high heart rate** for a demo.
+The extension runs a JavaScript port of `live_monitor.py`. After retraining, run `python export_model_js.py` and reload the extension. After changing the Python detection logic, update `meet_extension/lapse_core.js` to match and run `python tests/check_js_port.py` (Mac) to check that both still agree.
 
 ## 5. How well does the monitor catch real lapses?
 
